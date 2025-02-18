@@ -34,19 +34,23 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # 禁止并行
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args["gpu_id"])
 # os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 procname = str(args["name"]) + "test" if args["test"] else str(args["name"])
-setproctitle.setproctitle('wyh_{}'.format(procname))
+setproctitle.setproctitle('wjh_{}'.format(procname))
 tasks = ["CoLA", "SST", "MRPC", "QQP", "STS", "MNLI", "QNLI", "RTE"]
 
 # 定义gpu设备
-device = torch.cuda.current_device()
+# device = torch.cuda.current_device()
+# args["device"] = device
+
+
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 args["device"] = device
+print(device)
 
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(3407)
     torch.cuda.manual_seed(3407)
-
 
 def to_list(tensor):
     return tensor.detach().cpu().tolist()
@@ -145,7 +149,7 @@ def test(args, model, device, tokenizer, albert_tokenizer):
         "prediction":result
     }   
     df = pd.DataFrame(res)
-    df.to_csv('/data/wyh/graduate/data/submit/{}.tsv'.format(args["name"]), sep = '\t', index=False, header=True)
+    df.to_csv('\\data\\wjh\\graduate\\data\\submit\\{}.tsv'.format(args["name"]), sep = '/t', index=False, header=True)
     
         
         
@@ -206,7 +210,7 @@ def evaluate(args, model, device, tokenizer, albert_tokenizer):
             "prediction":result
         }   
         df = pd.DataFrame(res)
-        df.to_csv('/data/wyh/graduate/data/submit/{}.tsv'.format(args["name"]), sep='\t', index=False, header=True)
+        df.to_csv('\\data\\wjh\\graduate\\data\\submit\\{}.tsv'.format(args["name"]), sep='/t', index=False, header=True)
     
     avg_val_loss = total_val_loss / len(eval_dataloader)
     avg_val_accuracy = total_eval_accuracy / len(eval_dataloader)
@@ -233,8 +237,8 @@ def run(args):
     albert_tokenizer = BertTokenizer.from_pretrained(args["model"])
     # 根据任务修改文件名
     TASKS = ["SST-B", "MRPC", "QQP", "MNLI", "QNLI", "RTE"]
-    # root = "/data/wyh/graduate/data/glue"
-    root = "/data/wyh/graduate/AugData"
+    # root = "\\data\\wjh\\graduate\\data\\glue"
+    root = "data\\wjh\\graduate\\AugData"
     if args["name"] == "STS-B":args["n_class"] = 5
     elif args["name"] == "SICK":args["n_class"] = 3
     

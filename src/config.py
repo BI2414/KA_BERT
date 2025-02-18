@@ -1,9 +1,9 @@
 '''
 Descripttion: 
 version: 
-Author: wyh
+Author: wjh
 Date: 2022-03-22 22:44:55
-LastEditors: wyh
+LastEditors: wjh
 LastEditTime: 2022-03-30 14:32:13
 '''
 import warnings
@@ -45,11 +45,11 @@ def get_argparse():
     
     parser.add_argument('--ratio', type=float, default=1, help="训练集合数据占比")
 
-    parser.add_argument('--aug', type=int, default=1, help="是否使用字扰动增强方案")
+    parser.add_argument('--aug', type=int, default=0, help="是否使用字扰动增强方案")
     
     parser.add_argument('--test', type=int, default=0, help="是否为测试状态, 1表示测试，0表示训练或验证")
     
-    parser.add_argument('--read_data', type=int, default=0, help="0表示读取pickle")
+    parser.add_argument('--read_data', type=int, default=1, help="0表示读取pickle")
     
     parser.add_argument('--gate', type=int, default=1, help="0表示不使用gate网络")
     
@@ -72,7 +72,7 @@ def get_argparse():
 
     parser.add_argument("--local_rank", type=int, default=-1, help = "设置单机多卡使用的参数")
     
-    parser.add_argument("--gpu_id", type=int, default=2, help = "运行当前代码使用的GPU卡编号")
+    parser.add_argument("--gpu_id", type=int, default=1, help = "运行当前代码使用的GPU卡编号")
 
 
     # 文本长度
@@ -82,31 +82,31 @@ def get_argparse():
 
     # 文件路径
 
-    parser.add_argument('--test_file', type=str, default='/data/wyh/graduate/data/RTE/test.tsv')
+    parser.add_argument('--test_file', type=str, default='data\\wjh\\graduate\\data\\RTE\\test.tsv')
     
-    parser.add_argument('--dev_file', type=str, default='/data/wyh/graduate/data/RTE/dev.tsv')
+    parser.add_argument('--dev_file', type=str, default='data\\wjh\\graduate\\data\\RTE\\dev.tsv')
 
-    parser.add_argument('--train_file', type=str, default='/data/wyh/graduate/data/RTE/train.tsv')
+    parser.add_argument('--train_file', type=str, default='data\\wjh\\graduate\\data\\RTE\\train.tsv')
     
-    parser.add_argument('--output_dir', type=str, default='/data/wyh/graduate/data/output', \
+    parser.add_argument('--output_dir', type=str, default='data\\wjh\\graduate\\data\\output', \
         help = "验证结果、测试结果输出文件")
     
-    parser.add_argument('--pickle_folder', type=str, default='/data/wyh/graduate/data/pickle', \
+    parser.add_argument('--pickle_folder', type=str, default='data\\wjh\\graduate\\data\\pickle', \
         help = "验证结果、测试结果输出文件")
     # 模型
 
-    parser.add_argument('--model_dir', type=str, default='/data/wyh/graduate/data/save', \
+    parser.add_argument('--model_dir', type=str, default='data\\wjh\\graduate\\data\\save', \
         help = "模型保存的路径")
     
     parser.add_argument('--crossmodel', type=str, default='albert-base-v2', \
         help = "cross attention预训练模型的路径")
     
-    parser.add_argument('--model', type=str, default='/data/wyh/graduate/data/bert-base-uncased', help = "预训练模型")
+    parser.add_argument('--model', type=str, default='data\\wjh\\graduate\\data\\bert-base-uncased', help = "预训练模型")
 
     parser.add_argument('--lambda_param', type=float, default=0.0005,
                         help='L2 regularization parameter')
 
     # other
-    parser.add_argument('--name', type=str, default='SICK', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
+    parser.add_argument('--name', type=str, default='RTE', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
     
     return parser

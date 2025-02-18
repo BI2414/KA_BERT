@@ -2,12 +2,12 @@ import os
 import sys
 import pandas as pd
 from copy import deepcopy
-sys.path.append("/data/wyh/graduate/New/")
+sys.path.append("data\\wyh\\graduate\\New\\")
 import json_lines
 import numpy as np
 from tqdm import tqdm
 from transformers import BasicTokenizer
-ROOT_DIR = os.path.abspath("/data/wyh/graduate/New")
+ROOT_DIR = os.path.abspath("data\\wyh\\graduate\\New")
 sys.path.append(ROOT_DIR)
 from block.calculate import PTM_keyword_extractor_yake
 from src.config import get_argparse
@@ -42,7 +42,7 @@ def read_RTE(input_file, is_training):
     df = pd.read_csv(dir_, sep = '\t', header=0, quoting=3)
 
     examples, chunks = [], []
-    # 参考 https://blog.csdn.net/sinat_29675423/article/details/87972498
+    # 参考 https:\\\\blog.csdn.net\\sinat_29675423\\article\\details\\87972498
     for index, row in df.iterrows():
         if args.test == 1:
             label = 0
@@ -60,7 +60,7 @@ def read_RTE(input_file, is_training):
 
 def read_SICK_aug(input_file, is_training):
     '''二分类'''
-    output = "/data/wyh/graduate/AugData/sick_backtrans.tsv"
+    output = "data\\wyh\\graduate\\AugData\\sick_backtrans.tsv"
     df = pd.read_csv(output, sep = '\t')
     examples, chunks = [], []
     index = 0
@@ -83,7 +83,7 @@ def read_SICK(input_file, is_training):
     if not is_training:
         suffix = ["train", "test"]
         suffix = suffix[0] if is_training else suffix[-1] 
-        dir = '/data/wyh/graduate/NEW_SICK/SICK.txt'
+        dir = 'data\\wyh\\graduate\\NEW_SICK\\SICK.txt'
         df = pd.read_csv(dir, sep = '\t', header=0, quoting=3)
         for index, row in df.iterrows():
             if (suffix == "test" and row["SemEval_set"] == "TEST") or (suffix == "train" and row["SemEval_set"] == "TRAIN"):
@@ -101,7 +101,7 @@ def read_SICK(input_file, is_training):
                 examples.append(example)
                 chunks.append(0)
     else:
-        dir = '/data/wyh/graduate/NEW_SICK/sick_new_train.tsv'
+        dir = 'data\\wyh\\graduate\\NEW_SICK\\sick_new_train.tsv'
         df = pd.read_csv(dir, sep = '\t', header=0, quoting=3)
         for index, row in df.iterrows():
             print(index)
@@ -182,7 +182,7 @@ def read_MRPC(input_file, is_training):
     suffix = ["msr_paraphrase_train.txt", "msr_paraphrase_test.txt"]
     suffix = suffix[0] if is_training else suffix[-1] 
     # dir_ = os.path.join(input_file, suffix)
-    dir_ = "/data/wyh/graduate/AugData/msr_paraphrase_test.txt"
+    dir_ = "data\\wyh\\graduate\\AugData\\msr_paraphrase_test.txt"
     examples, chunks = [], []
     index = 0
     with open(dir_, encoding="utf-8") as f:
@@ -200,7 +200,7 @@ def read_MRPC(input_file, is_training):
 
 def read_MRPC_aug(input_file, is_training):
     '''二分类'''
-    output = "/data/wyh/graduate/AugData/mrpc_backtrans.tsv"
+    output = "glue_data\\MRPC\\msr_paraphrase_train.txt"
     df = pd.read_csv(output, sep = '\t')
     examples, chunks = [], []
     index = 0
