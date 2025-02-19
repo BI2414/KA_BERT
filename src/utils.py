@@ -182,7 +182,7 @@ def read_MRPC(input_file, is_training):
     suffix = ["msr_paraphrase_train.txt", "msr_paraphrase_test.txt"]
     suffix = suffix[0] if is_training else suffix[-1] 
     # dir_ = os.path.join(input_file, suffix)
-    dir_ = "data\\wyh\\graduate\\AugData\\msr_paraphrase_test.txt"
+    dir_ = "data\\wjh\\graduate\\AugData\\MRPC\\msr_paraphrase_test.txt"
     examples, chunks = [], []
     index = 0
     with open(dir_, encoding="utf-8") as f:
@@ -200,19 +200,30 @@ def read_MRPC(input_file, is_training):
 
 def read_MRPC_aug(input_file, is_training):
     '''二分类'''
-    output = "glue_data\\MRPC\\msr_paraphrase_train.txt"
-    df = pd.read_csv(output, sep = '\t')
+    input = "data\\wjh\\graduate\\AugData\\MRPC\\msr_paraphrase_train.txt"
+    # df = pd.read_csv(output, encoding="utf-8" ,sep = '\t')
     examples, chunks = [], []
     index = 0
-    for i, row in df.iterrows():
-        print(index, row['sentence1'], row['sentence2'], row['label'])
-        index += 1
-        s1, s2, label = row['sentence1'], row['sentence2'], row['label']
-        example = MatchExample(str(s1), str(s2), int(label))
-        examples.append(example)
-        chunk = ChunkExample(PTM_keyword_extractor_yake(s1), PTM_keyword_extractor_yake(s2), label)
-        chunks.append(chunk)
-        # if i > 100:break
+    # for i, row in df.iterrows():
+    #     print(index, row['sentence1'], row['sentence2'], row['label'])
+    #     index += 1
+    #     s1, s2, label = row['sentence1'], row['sentence2'], row['label']
+    #     example = MatchExample(str(s1), str(s2), int(label))
+    #     examples.append(example)
+    #     chunk = ChunkExample(PTM_keyword_extractor_yake(s1), PTM_keyword_extractor_yake(s2), label)
+    #     chunks.append(chunk)
+    #     # if i > 100:break
+    with open(input, encoding="utf-8") as f:
+        for row in f:
+            print(index)
+            # if index > 200:break
+            index += 1
+            label, id1, id2, s1, s2 = row.strip().split('\t')
+            if len(label) > 1:continue
+            example = MatchExample(s1, s2, int(label))
+            examples.append(example)
+            chunk = ChunkExample(PTM_keyword_extractor_yake(s1), PTM_keyword_extractor_yake(s2), label)
+            chunks.append(chunk)
     print("total train items:", index)
     return examples, chunks
 
