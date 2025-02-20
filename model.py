@@ -6,6 +6,8 @@ from torch.nn import CrossEntropyLoss
 from math import sqrt
 from transformers import BertTokenizer, BertForSequenceClassification, BertConfig
 import torch.nn.functional as F
+from block.KeywordAttention import KeywordAttention
+from block.KeywordDiscriminator import KeywordDiscriminator
 
 
 class GaussianKLLoss(nn.Module):
@@ -43,8 +45,18 @@ class NewBert(nn.Module):
                                         nn.Linear(args["hidden_size"],
                                                     3))
         # y1= F.softmax(x, dim = 0) #对每一列进行softmax
-        
-        
+        # 添加关键词鉴别网络
+        self.keyword_discriminator = KeywordDiscriminator(
+            hidden_size=args["hidden_size"], num_heads=4, dropout=args["hidden_dropout_prob"]
+        )
+
+        if self.args["gate"]:
+            self.Gate = nn.Sequential(nn.Linear(2 * args["hidden_size"],
+                                                args["hidden_size"]),
+                                      nn.ReLU(),
+                                      nn.Linear(args["hidden_size"],
+                                                3))
+
     def forward(self, input_ids,
                 attention_mask,
                 token_type_ids, input_chunk, labels):
@@ -63,6 +75,11 @@ class NewBert(nn.Module):
                 outputs = encoder(**encoder_inputs)
                 hiddens = outputs[0]
             inputs_embeds = embeddings(input_ids)
+
+            # 使用关键词鉴别网络
+            keyword_scores = self.keyword_discriminator(hiddens.transpose(0, 1), attention_mask)
+            keyword_scores = keyword_scores.unsqueeze(-1)  # (batch_size, seq_len, 1)
+
             if self.args['uniform']:
                 # low is 0.95, high is 1.05 Try to produce softer noise as much as possible，to avoid semantic space collapse
                 uniform_noise = torch.empty(inputs_embeds.shape).uniform_(0.9995, 1.0005).to(self.args['device'])

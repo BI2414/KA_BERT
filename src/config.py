@@ -108,5 +108,8 @@ def get_argparse():
 
     # other
     parser.add_argument('--name', type=str, default='RTE', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
-    
+
+    parser.add_argument('--hidden_dropout_prob', type=float, default=0.1,
+                        help="BERT 模型的隐藏层 dropout 概率，默认值为0.1")
+
     return parser

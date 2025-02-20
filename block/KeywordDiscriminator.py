@@ -31,6 +31,9 @@ class KeywordDiscriminator(nn.Module):
         :param attention_mask: 注意力掩码，形状为 (batch_size, seq_len)
         :return: 关键词的重要性分数，形状为 (batch_size, seq_len)
         """
+        # 确保 attention_mask 是 boolean 类型
+        attention_mask = attention_mask.bool()
+
         # 多头注意力机制
         attn_output, _ = self.multihead_attn(token_embeddings, token_embeddings, token_embeddings,
                                              key_padding_mask=attention_mask)
