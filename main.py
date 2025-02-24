@@ -12,6 +12,9 @@ transformers.logging.set_verbosity_error()
 import numpy as np
 import pandas as pd
 import torch
+print(torch.cuda.is_available())
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)  # 输出当前设备
 import torch.nn as nn
 from torch.nn import CrossEntropyLoss
 from sklearn import metrics
@@ -30,7 +33,7 @@ from nni.utils import merge_parameter
 
 args = get_argparse().parse_args()
 args = vars(args)
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # 禁止并行
+os.environ['CUDA_LAUNCH_BLOCKING'] = '0' # 禁止并行
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args["gpu_id"])
 # os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 procname = str(args["name"]) + "test" if args["test"] else str(args["name"])
@@ -40,11 +43,10 @@ tasks = ["CoLA", "SST", "MRPC", "QQP", "STS", "MNLI", "QNLI", "RTE"]
 # 定义gpu设备
 # device = torch.cuda.current_device()
 # args["device"] = device
-
-
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-args["device"] = device
-print(device)
+print(torch.cuda.is_available())
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+args['device'] =device
+print(device)  # 输出当前设备
 
 def set_seed(seed):
     random.seed(seed)
@@ -82,7 +84,7 @@ def save_model(args, model):
     time_local = time.localtime(time_now)
     #转换成新的时间格式(2016-05-09 18:59:20)
     dt = time.strftime("%Y-%m-%d %H:%M:%S",time_local)
-    
+
     if not os.path.exists(args["model_dir"]):
         os.makedirs(args["model_dir"])
     ckpt_file = os.path.join(args["model_dir"], "bert_base_{}.pt".format(args["name"]))
@@ -163,9 +165,9 @@ def test(args, model, device, tokenizer, albert_tokenizer):
         "prediction": result
     }
     df = pd.DataFrame(res)
-    df.to_csv('data\\wjh\\graduate\\data\\submit\\{}.tsv'.format(args["name"]), sep='\t', index=False, header=True)
-        
-        
+    df.to_csv('data/wjh/graduate/data/submit/{}.tsv'.format(args["name"]), sep='\t', index=False, header=True)
+
+
 def evaluate(args, model, device, tokenizer, albert_tokenizer):
     if args["read_data"] or args["name"] == "MNLIMM":
         examples, chunks = read_examples(args["dev_file"], args["name"],
@@ -194,9 +196,9 @@ def evaluate(args, model, device, tokenizer, albert_tokenizer):
         os.makedirs(args["output_dir"])
 
     eval_dataloader = get_dataloader(args, eval_features, eval_chunks_features, labels, args["test_batch_size"], is_training=False)
-    
+
     model.eval()
-    
+
     total_val_loss, total_eval_accuracy, total_eval_f1 = 0, 0, 0.0
     result = []
     for i, (inputs_sentence, inputs_chunk, labels) in enumerate(eval_dataloader):
@@ -210,21 +212,21 @@ def evaluate(args, model, device, tokenizer, albert_tokenizer):
             # 针对MRPC、QQP任务需要报告f1分数单独处理
             if args["name"] in ["MRPC", "QQP"]:
                 total_eval_f1 += flat_f1(logits, label_ids)
-            
+
             # 针对MRPC任务单独处理，因为其只有训练集和测试集
             if args["name"] == "MRPC":
                 pred_flat = np.argmax(logits, axis=1).flatten()
                 result.extend(pred_flat)
-    # 针对MRPC任务单独处理，因为其只有训练集和测试集     
+    # 针对MRPC任务单独处理，因为其只有训练集和测试集
     if args["name"] == "MRPC":
         indexs = [i for i in range(len(result))]
         res = {
             "index":indexs,
             "prediction":result
-        }   
+        }
         df = pd.DataFrame(res)
-        df.to_csv('data\\wjh\\graduate\\data\\submit\\{}.tsv'.format(args["name"]), sep='\t', index=False, header=True)
-    
+        df.to_csv('data/wjh/graduate/data/submit/{}.tsv'.format(args["name"]), sep='\t', index=False, header=True)
+
     avg_val_loss = total_val_loss / len(eval_dataloader)
     avg_val_accuracy = total_eval_accuracy / len(eval_dataloader)
 
@@ -252,7 +254,7 @@ def run(args):
 
     # 根据任务修改文件名
     TASKS = ["SST-B", "MRPC", "QQP", "MNLI", "QNLI", "RTE"]
-    root = "data\\wjh\\graduate\\AugData"
+    root = "data/wjh/graduate/AugData"
     if args["name"] == "STS-B":
         args["n_class"] = 5
     elif args["name"] == "SICK":
@@ -329,8 +331,8 @@ def run(args):
     for iter in range(args["num_train_epochs"]):
         model.train()
         num_batches = len(train_loader)
-        if args["read_data"]:
-            results = evaluate(args, model, device, albert_tokenizer, tokenizer)
+        # if args["read_data"]:
+            # results = evaluate(args, model, device, albert_tokenizer, tokenizer)
 
         for index, (inputs_sentence, inputs_chunk, labels) in enumerate(
                 tqdm(train_loader, total=num_batches, position=0, leave=False)):
@@ -351,8 +353,12 @@ def run(args):
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
-            scheduler.step()
+            scheduler.step() #动态调整学习率
             model.zero_grad()
+
+            # 打印当前的学习率
+            current_lr = optimizer.param_groups[0]['lr']
+            print(f"Current Learning Rate: {current_lr:.6f}")
 
             loss_log.set_description_str(loss_str)
 

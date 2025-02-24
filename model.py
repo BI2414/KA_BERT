@@ -43,19 +43,19 @@ class NewBert(nn.Module):
                                                     args["hidden_size"]),
                                         nn.ReLU(),
                                         nn.Linear(args["hidden_size"],
-                                                    3))
+                                                    2))
         # y1= F.softmax(x, dim = 0) #对每一列进行softmax
         # 添加关键词鉴别网络
-        self.keyword_discriminator = KeywordDiscriminator(
-            hidden_size=args["hidden_size"], num_heads=4, dropout=args["hidden_dropout_prob"]
-        )
+        # self.keyword_discriminator = KeywordDiscriminator(
+        #     hidden_size=args["hidden_size"], num_heads=4, dropout=args["hidden_dropout_prob"]
+        # )
 
-        if self.args["gate"]:
-            self.Gate = nn.Sequential(nn.Linear(2 * args["hidden_size"],
-                                                args["hidden_size"]),
-                                      nn.ReLU(),
-                                      nn.Linear(args["hidden_size"],
-                                                3))
+        # if self.args["gate"]:
+        #     self.Gate = nn.Sequential(nn.Linear(2 * args["hidden_size"],
+        #                                         args["hidden_size"]),
+        #                               nn.ReLU(),
+        #                               nn.Linear(args["hidden_size"],
+        #                                         3))
 
     def forward(self, input_ids,
                 attention_mask,

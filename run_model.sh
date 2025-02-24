@@ -1,8 +1,8 @@
 python -u main.py \
-    --test 1 \
-    --name "RTE" \
-    --aug 0 \
-    --uniform 0 \
+    --test 0 \
+    --name "BQ" \
+    --aug 1 \
+    --uniform 1 \
     --gate 0 \
     --gpu_id 1 \
     --ratio 1.0 \
@@ -12,4 +12,4 @@ python -u main.py \
     --max_len 128 \
     --beta 0.5 \
     --zero_peturb 0 \
-    --learning_rate 0.00005 > run_RTE_Test.log 2>&1 &
+    --learning_rate 0.00005 > run_BQ_aug_uniform_train_rate0.00005.log 2>&1 &

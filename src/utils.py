@@ -2,16 +2,20 @@ import os
 import sys
 import pandas as pd
 from copy import deepcopy
-sys.path.append("data\\wyh\\graduate\\New\\")
+sys.path.append("data/wyh/graduate/New/")
 import json_lines
 import numpy as np
 from tqdm import tqdm
 from transformers import BasicTokenizer
-ROOT_DIR = os.path.abspath("data\\wyh\\graduate\\New")
+ROOT_DIR = os.path.abspath("data/wyh/graduate/New")
 sys.path.append(ROOT_DIR)
 from block.calculate import PTM_keyword_extractor_yake
 from src.config import get_argparse
 args = get_argparse().parse_args()
+class Example:
+    def __init__(self, sentence1, sentence2):
+        self.sentence1 = str(sentence1)  # 确保转换为字符串
+        self.sentence2 = str(sentence2)  # 确保转换为字符串
 
 class MatchExample(object):
     '''文本example'''
@@ -42,7 +46,7 @@ def read_RTE(input_file, is_training):
     df = pd.read_csv(dir_, sep = '\t', header=0, quoting=3)
 
     examples, chunks = [], []
-    # 参考 https:\\\\blog.csdn.net\\sinat_29675423\\article\\details\\87972498
+    # 参考 https://blog.csdn.net/sinat_29675423/article/details/87972498
     for index, row in df.iterrows():
         if args.test == 1:
             label = 0
@@ -60,7 +64,7 @@ def read_RTE(input_file, is_training):
 
 def read_SICK_aug(input_file, is_training):
     '''二分类'''
-    output = "data\\wyh\\graduate\\AugData\\sick_backtrans.tsv"
+    output = "data/wyh/graduate/AugData/sick_backtrans.tsv"
     df = pd.read_csv(output, sep = '\t')
     examples, chunks = [], []
     index = 0
@@ -83,7 +87,7 @@ def read_SICK(input_file, is_training):
     if not is_training:
         suffix = ["train", "test"]
         suffix = suffix[0] if is_training else suffix[-1] 
-        dir = 'data\\wyh\\graduate\\NEW_SICK\\SICK.txt'
+        dir = 'data/wyh/graduate/NEW_SICK/SICK.txt'
         df = pd.read_csv(dir, sep = '\t', header=0, quoting=3)
         for index, row in df.iterrows():
             if (suffix == "test" and row["SemEval_set"] == "TEST") or (suffix == "train" and row["SemEval_set"] == "TRAIN"):
@@ -101,7 +105,7 @@ def read_SICK(input_file, is_training):
                 examples.append(example)
                 chunks.append(0)
     else:
-        dir = 'data\\wyh\\graduate\\NEW_SICK\\sick_new_train.tsv'
+        dir = 'data/wyh/graduate/NEW_SICK/sick_new_train.tsv'
         df = pd.read_csv(dir, sep = '\t', header=0, quoting=3)
         for index, row in df.iterrows():
             print(index)
@@ -182,7 +186,7 @@ def read_MRPC(input_file, is_training):
     suffix = ["msr_paraphrase_train.txt", "msr_paraphrase_test.txt"]
     suffix = suffix[0] if is_training else suffix[-1] 
     # dir_ = os.path.join(input_file, suffix)
-    dir_ = "data\\wjh\\graduate\\AugData\\MRPC\\msr_paraphrase_test.txt"
+    dir_ = "data/wjh/graduate/AugData/MRPC/msr_paraphrase_test.txt"
     examples, chunks = [], []
     index = 0
     with open(dir_, encoding="utf-8") as f:
@@ -200,7 +204,7 @@ def read_MRPC(input_file, is_training):
 
 def read_MRPC_aug(input_file, is_training):
     '''二分类'''
-    input = "data\\wjh\\graduate\\AugData\\MRPC\\msr_paraphrase_train.txt"
+    input = "data/wjh/graduate/AugData/MRPC/msr_paraphrase_train.txt"
     # df = pd.read_csv(output, encoding="utf-8" ,sep = '\t')
     examples, chunks = [], []
     index = 0
@@ -286,7 +290,123 @@ def read_MNLIMM(input_file, is_training):
         chunk = ChunkExample(PTM_keyword_extractor_yake(str(row['sentence1'])), PTM_keyword_extractor_yake(str(row['sentence2'])), label)
         chunks.append(chunk)
     return examples, chunks
-    
+
+def read_BQ(input_file, is_training):
+    '''二分类'''
+    suffix = ["train.tsv", "dev.tsv"]
+    if args.test:
+        suffix = "test.tsv"
+    else:suffix = suffix[0] if is_training else suffix[-1]
+    dir_ = os.path.join(input_file, suffix)
+    df = pd.read_csv(dir_, sep = '\t', header=0, quoting=3)
+
+    examples, chunks = [], []
+    # 参考 https://blog.csdn.net/sinat_29675423/article/details/87972498
+    for index, row in df.iterrows():
+        if args.test == 1:
+            label = 0
+        else:
+            if isinstance(row['label'], int):label = row["label"]
+            else:
+                label = 1 if row["label"] == "entailment" else 0
+        example = MatchExample(row['sentence1'], row['sentence2'], label)
+        # print(index, PTM_keyword_extractor_yake(row['sentence1']))
+        chunk = ChunkExample(PTM_keyword_extractor_yake(row['sentence1']), PTM_keyword_extractor_yake(row['sentence2']), label)
+        chunks.append(chunk)
+        examples.append(example)
+        print(index)
+    return examples, chunks
+
+def read_LCQMC(input_file, is_training):
+    '''二分类'''
+    suffix = ["train.tsv", "dev.tsv"]
+    if args.test:
+        suffix = "test.tsv"
+    else:suffix = suffix[0] if is_training else suffix[-1]
+    dir_ = os.path.join(input_file, suffix)
+    df = pd.read_csv(dir_, sep = '\t', header=0, quoting=3)
+
+    examples, chunks = [], []
+    # 参考 https://blog.csdn.net/sinat_29675423/article/details/87972498
+    for index, row in df.iterrows():
+        if args.test == 1:
+            label = 0
+        else:
+            if isinstance(row['label'], int):label = row["label"]
+            else:
+                label = 1 if row["label"] == "entailment" else 0
+        example = MatchExample(row['sentence1'], row['sentence2'], label)
+        # print(index, PTM_keyword_extractor_yake(row['sentence1']))
+        print(index)
+        chunk = ChunkExample(PTM_keyword_extractor_yake(row['sentence1']), PTM_keyword_extractor_yake(row['sentence2']), label)
+        chunks.append(chunk)
+        examples.append(example)
+    return examples, chunks
+
+
+def safe_keyword_extraction(text):
+    """
+    安全的关键词提取函数，处理空值和无效输入。
+    """
+    if pd.isna(text) or text == "nan" or not text:
+        return []
+    return PTM_keyword_extractor_yake(str(text))
+
+
+def read_PAWS(input_file, is_training):
+    '''二分类'''
+    suffix = ["train.tsv", "dev.tsv"]
+    if args.test:
+        suffix = "test.tsv"
+    else:
+        suffix = suffix[0] if is_training else suffix[-1]
+
+    dir_ = os.path.join(input_file, suffix)
+    df = pd.read_csv(dir_, sep='\t', header=0, quoting=3)
+
+    examples, chunks = [], []
+    for index, row in df.iterrows():
+        # 处理 sentence1 和 sentence2
+        sentence1 = str(row["sentence1"]) if pd.notna(row["sentence1"]) else ""
+        sentence2 = str(row["sentence2"]) if pd.notna(row["sentence2"]) else ""
+
+        # 处理 label
+        if args.test == 1:
+            label = 0
+        else:
+            if isinstance(row['label'], int):
+                label = row["label"]
+            elif isinstance(row['label'], str):
+                # 处理字符串形式的数字（如 "0" 或 "1"）
+                if row["label"].isdigit():
+                    label = int(row["label"])
+                else:
+                    label = 1 if row["label"].lower() == "entailment" else 0
+            else:
+                label = 0  # 默认值
+
+        # 创建 MatchExample
+        example = MatchExample(sentence1, sentence2, label)
+        examples.append(example)
+
+        # 提取关键词并创建 ChunkExample
+        keywords1 = safe_keyword_extraction(row['sentence1'])
+        keywords2 = safe_keyword_extraction(row['sentence2'])
+
+        # 确保 keywords1 和 keywords2 是列表或可迭代对象
+        if not isinstance(keywords1, list):
+            keywords1 = [keywords1] if keywords1 is not None else []
+        if not isinstance(keywords2, list):
+            keywords2 = [keywords2] if keywords2 is not None else []
+
+        chunk = ChunkExample(keywords1, keywords2, label)
+        chunks.append(chunk)
+
+        # 打印进度
+        print(f"Processed row {index}: sentence1='{sentence1}', sentence2='{sentence2}', label={label}")
+
+    return examples, chunks
+
 def read_examples(input_file, name, is_training):
     """Read a json file into a list of Example."""
     
@@ -312,7 +432,12 @@ def read_examples(input_file, name, is_training):
             return read_SICK_aug(input_file, is_training)
         else:
             return read_SICK(input_file, is_training)
-    
+    elif name == "BQ":
+        return read_BQ(input_file, is_training)
+    elif name == "LCQMC":
+        return read_LCQMC(input_file, is_training)
+    elif name == "PAWS":
+        return read_PAWS(input_file, is_training)
     
 
 def convert_examples_to_features(args, examples, chunks, albert_tokenizer, tokenizer, max_len, is_training):
