@@ -7,7 +7,7 @@ from math import sqrt
 from transformers import BertTokenizer, BertForSequenceClassification, BertConfig
 import torch.nn.functional as F
 from block.KeywordAttention import KeywordAttention
-from block.KeywordDiscriminator import KeywordDiscriminator
+from block.KeywordAttentionLayer import KeywordAttentionLayer
 
 
 class GaussianKLLoss(nn.Module):
@@ -31,35 +31,25 @@ class NewBert(nn.Module):
                                                  args["hidden_size"]),
                                        nn.ReLU(),
                                        nn.Linear(args["hidden_size"],
-                                                 args["hidden_size"] * 2))
+                                                 args["hidden_size"] * 3))
         config = self.bert_model.config
         self.config = config
         self.dropout = config.hidden_dropout_prob  # 0.1
         self.args = args
-        # 定义Gate 网络; 假设输入是2 X 768架构
-        # self.pool = nn.AdaptiveAvgPool2d((1, 768))
-        if self.args["gate"]:
-            self.Gate = nn.Sequential(nn.Linear( 2 * args["hidden_size"],
-                                                    args["hidden_size"]),
-                                        nn.ReLU(),
-                                        nn.Linear(args["hidden_size"],
-                                                    2))
-        # y1= F.softmax(x, dim = 0) #对每一列进行softmax
-        # 添加关键词鉴别网络
-        self.keyword_discriminator = KeywordDiscriminator(
-            hidden_size=args["hidden_size"], num_heads=4, dropout=args["hidden_dropout_prob"]
-        )
+
+        # 添加 KeywordAttentionLayer
+        self.keyword_attention = KeywordAttentionLayer(hidden_size=args["hidden_size"])
 
         if self.args["gate"]:
             self.Gate = nn.Sequential(nn.Linear(2 * args["hidden_size"],
                                                 args["hidden_size"]),
                                       nn.ReLU(),
                                       nn.Linear(args["hidden_size"],
-                                                3))
+                                                2))
 
     def forward(self, input_ids,
                 attention_mask,
-                token_type_ids, input_chunk, labels):
+                token_type_ids, input_chunk, labels,keyword_mask=None):
         '''
                 input_chunk 用不到，是为了baseline模型的效果测试
         '''
@@ -76,9 +66,6 @@ class NewBert(nn.Module):
                 hiddens = outputs[0]
             inputs_embeds = embeddings(input_ids)
 
-            # 使用关键词鉴别网络
-            keyword_scores = self.keyword_discriminator(hiddens.transpose(0, 1), attention_mask)
-            keyword_scores = keyword_scores.unsqueeze(-1)  # (batch_size, seq_len, 1)
 
             if self.args['uniform']:
                 # low is 0.95, high is 1.05 Try to produce softer noise as much as possible，to avoid semantic space collapse
@@ -108,6 +95,7 @@ class NewBert(nn.Module):
 
             # Random discarding to aug
             rands = list(set([random.randint(1, inputs_embeds.shape[0] - 1) for i in range(self.args["zero_peturb"])]))
+
             for index in rands:
                 embed_ = inputs_embeds[index, :, :]
                 length = random.randint(1, 3)
@@ -115,7 +103,13 @@ class NewBert(nn.Module):
                     index_ = random.randint(1, inputs_embeds.shape[1] - 1)
                     vec = torch.rand(1, inputs_embeds.shape[-1]).to(self.args["device"])
                     embed_[index_] = vec
-            
+            #噪声增强的模型
+
+            # 使用 Keyword-Attention Layer
+            if keyword_mask is not None:
+                keyword_aware_output = self.keyword_attention(hiddens, keyword_mask)
+                inputs_embeds = keyword_aware_output  # 使用修改后的 embedding
+
             inputs = {"inputs_embeds": inputs_embeds * noise,
                       "attention_mask": attention_mask,
                       "token_type_ids": token_type_ids,
@@ -123,7 +117,7 @@ class NewBert(nn.Module):
 
             noise_outputs = self.bert_model(**inputs, output_hidden_states = True)
             noise_loss = noise_outputs[0]
-
+            #原始模型
             new_inputs = {"inputs_embeds": inputs_embeds,
                           "attention_mask": attention_mask,
                           "token_type_ids": token_type_ids,
@@ -131,21 +125,27 @@ class NewBert(nn.Module):
 
             outputs = self.bert_model(**new_inputs, output_hidden_states = True)
             nll = outputs[0]
-            
-            if self.args["gate"]:
+
+            if self.args["gate"]: #等于adapter
                 # 获取CLS
                 last_noise = noise_outputs.hidden_states[-1]
                 last = outputs.hidden_states[-1]
-                cls_noise = last_noise[:,:1,:].squeeze()
-                cls = last[:,:1,:].squeeze()
-                cls_total = torch.cat((cls_noise, cls), dim = 1)
-                cls_total = torch.mean(cls_total, dim = 0).unsqueeze(dim = 0)
+                cls_noise = last_noise[:, :1, :].squeeze()  # 获取噪声向量的CLS
+                cls = last[:, :1, :].squeeze()  # 获取原始向量的CLS
+                cls_total = torch.cat((cls_noise, cls), dim=1)
+                cls_total = torch.mean(cls_total, dim=0).unsqueeze(dim=0)  # 合并并计算平均
                 # 将CLS通过Gate网络
                 res = self.Gate(cls_total)
-                Gates = F.softmax(res, dim = -1).squeeze()
-                loss = noise_loss * Gates[0] + nll * Gates[1]
+                temperature = 0.5
+                Gates = F.softmax(res / temperature, dim=-1).squeeze()
+                # Gates = F.softmax(res, dim=-1).squeeze()  # Gate 权重，通过softmax标准化
+                # Adapter 动态调整损失
+                print("CLS Total:", cls_total.mean().item())
+                print("Gates:", Gates)
+                loss = noise_loss * Gates[0] + nll * Gates[1]  # 动态调整损失
+                # loss = nll + 0.001 * noise_loss
             else:
-                loss = nll + 0.001 * noise_loss
+                loss = nll + 0.001 * noise_loss #loss 为公式10的前半部分 nll为loss(p,h) noise_loss为loss(p`,h`)
             if self.args['uniform']:
                 return (loss, 0 * loss, outputs.logits)
             else:

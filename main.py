@@ -317,12 +317,14 @@ def run(args):
     t_total = len(train_loader) * args["num_train_epochs"]
 
     optimizer = AdamW(model.parameters(),
-                      lr=args["learning_rate"], eps=args["adam_epsilon"])
-
+                      lr=args["learning_rate"], eps=args["adam_epsilon"],weight_decay=args["weight_decay"])
+    # 使用cosine调度器
     scheduler = get_cosine_schedule_with_warmup(optimizer,
                                                 num_warmup_steps=int(t_total) * args["warm_up_rate"],
                                                 num_training_steps=t_total)
 
+    # # 在验证损失没有改善时动态减小学习率
+    # lr_scheduler_plateau = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2, verbose=True)
     loss_log = tqdm(total=0, bar_format='{desc}', position=1)
 
     best_eval_acc = 0.0  # 跟踪最佳的验证准确率
@@ -342,9 +344,10 @@ def run(args):
 
             if args["baseline"]:
                 outputs = outputs[0]
+
             if args["aug"]:
                 nll, kl, logits = outputs[0], outputs[1], outputs[2]
-                loss = nll + kl * args["beta"]
+                loss = nll + kl * args["beta"] #损失函数计算的方法 论文公式10
                 loss_str = "NLL: {:.4f}, KL: {:.4f}".format(nll.item(), kl.item())
             else:
                 loss = outputs[0]
@@ -353,7 +356,7 @@ def run(args):
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
-            scheduler.step() #动态调整学习率
+            scheduler.step()  # 注意：这里的 scheduler 是你原本的学习率调度器
             model.zero_grad()
 
             # 打印当前的学习率
@@ -365,6 +368,7 @@ def run(args):
         # 在每个 epoch 结束后进行评估
         results = evaluate(args, model, device, tokenizer, albert_tokenizer)
         eval_acc = results["acc"]  # 假设你的 evaluate 函数返回了 eval_accuracy
+        eval_loss = results["val_loss"]  # 假设 evaluate 函数返回了 eval_loss
         print("epoch:", iter)
 
         # 判断是否是最佳模型

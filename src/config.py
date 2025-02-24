@@ -18,7 +18,7 @@ def get_argparse():
     parser.add_argument('--num_train_epochs', type=int, default=3)
     parser.add_argument('--batch_size', type=int, default=64, help = "训练 batch")
     parser.add_argument('--test_batch_size', type=int, default=256, help = "验证预测batch大小")
-    parser.add_argument('--learning_rate', type=float, default=0.00005, help = "学习率")
+    parser.add_argument('--learning_rate', type=float, default=5e-5, help = "学习率")
     parser.add_argument('--eps', type=float, default=1e-8)
 
     parser.add_argument("--warm_up_rate", type=float, default=0.1)
@@ -45,7 +45,7 @@ def get_argparse():
     
     parser.add_argument('--ratio', type=float, default=1, help="训练集合数据占比")
 
-    parser.add_argument('--aug', type=int, default=0, help="是否使用字扰动增强方案")
+    parser.add_argument('--aug', type=int, default=1, help="是否使用字扰动增强方案")
     
     parser.add_argument('--test', type=int, default=1, help="是否为测试状态, 1表示测试，0表示训练或验证")
     
