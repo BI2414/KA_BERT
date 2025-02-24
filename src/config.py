@@ -15,7 +15,7 @@ def get_argparse():
 
     # 超参数
     parser.add_argument('--num_workers', type=int, default=0)
-    parser.add_argument('--num_train_epochs', type=int, default=5)
+    parser.add_argument('--num_train_epochs', type=int, default=3)
     parser.add_argument('--batch_size', type=int, default=64, help = "训练 batch")
     parser.add_argument('--test_batch_size', type=int, default=256, help = "验证预测batch大小")
     parser.add_argument('--learning_rate', type=float, default=0.00005, help = "学习率")
@@ -47,9 +47,9 @@ def get_argparse():
 
     parser.add_argument('--aug', type=int, default=0, help="是否使用字扰动增强方案")
     
-    parser.add_argument('--test', type=int, default=0, help="是否为测试状态, 1表示测试，0表示训练或验证")
+    parser.add_argument('--test', type=int, default=1, help="是否为测试状态, 1表示测试，0表示训练或验证")
     
-    parser.add_argument('--read_data', type=int, default=0, help="0表示读取pickle")
+    parser.add_argument('--read_data', type=int, default=1, help="0表示读取pickle")
     
     parser.add_argument('--gate', type=int, default=0, help="0表示不使用gate网络")
     
@@ -101,18 +101,19 @@ def get_argparse():
     parser.add_argument('--crossmodel', type=str, default='albert-base-v2', \
         help = "cross attention预训练模型的路径")
     
-    parser.add_argument('--model', type=str, default='data/wjh/graduate/data/bert-base-uncased', help = "预训练模型")
+    # parser.add_argument('--model', type=str, default='data/wjh/graduate/data/bert-base-uncased', help = "预训练模型")
+    parser.add_argument('--model', type=str, default='data/wjh/graduate/data/bert-base-chinese', help = "预训练模型")
 
     parser.add_argument('--lambda_param', type=float, default=0.0005,
                         help='L2 regularization parameter')
 
     # other
-    # parser.add_argument('--name', type=str, default='RTE', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
+    # parser.add_argument('--name', type=str, default='QQP', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
     # parser.add_argument('--name', type=str, default='LCQMC', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
     parser.add_argument('--name', type=str, default='PAWS', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
-    # parser.add_argument('--name', type=str, default='CoLA', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
-
-    # parser.add_argument('--hidden_dropout_prob', type=float, default=0.1,
-    #                     help="BERT 模型的隐藏层 dropout 概率，默认值为0.1")
+    # parser.add_argument('--name', type=str, default='BQ', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
+    #
+    parser.add_argument('--hidden_dropout_prob', type=float, default=0.1,
+                        help="BERT 模型的隐藏层 dropout 概率，默认值为0.1")
 
     return parser
