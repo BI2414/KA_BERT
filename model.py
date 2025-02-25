@@ -47,14 +47,13 @@ class NewBert(nn.Module):
                                       nn.Linear(args["hidden_size"],
                                                 2))
 
-    def forward(self, input_ids,
-                attention_mask,
-                token_type_ids, input_chunk, labels,keyword_mask=None):
-        '''
-                input_chunk 用不到，是为了baseline模型的效果测试
-        '''
-        input_ids, attention_mask, token_type_ids = input_ids.squeeze(), attention_mask.squeeze(), token_type_ids.squeeze()
+    def forward(self, input_ids, attention_mask, token_type_ids, labels, keyword_mask=None):
+        # 获取 BERT 输出
+        hiddens = self.bert(input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)[0]
         if self.args["aug"]:
+            # 使用 keyword_mask 增强隐藏层
+            if keyword_mask is not None:
+                hiddens = self.keyword_attention(hiddens, keyword_mask)  # 修改位置
             embeddings = self.bert_model.get_input_embeddings()
             encoder = self.bert_model.bert
             with torch.no_grad():
@@ -104,11 +103,6 @@ class NewBert(nn.Module):
                     vec = torch.rand(1, inputs_embeds.shape[-1]).to(self.args["device"])
                     embed_[index_] = vec
             #噪声增强的模型
-
-            # 使用 Keyword-Attention Layer
-            if keyword_mask is not None:
-                keyword_aware_output = self.keyword_attention(hiddens, keyword_mask)
-                inputs_embeds = keyword_aware_output  # 使用修改后的 embedding
 
             inputs = {"inputs_embeds": inputs_embeds * noise,
                       "attention_mask": attention_mask,

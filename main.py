@@ -131,9 +131,10 @@ def test(args, model, device, tokenizer, albert_tokenizer):
             token_type_ids = feature_batch["token_type_ids"].to(device)
             input_chunk = feature_chunk_batch.to(device)
             labels = label_batch.to(device)
+            inputs_chunk = inputs_chunk.to(device)  # 确保传递 keyword_mask
 
             # 调用模型
-            outputs = model(input_ids, attention_mask, token_type_ids, input_chunk, labels)
+            outputs = model(input_ids, attention_mask, token_type_ids, labels,keyword_mask=inputs_chunk)
             if args["baseline"] == 1:  # 不同模型forward值不同
                 loss, logits = outputs[0], outputs[1]
             else:
@@ -203,8 +204,8 @@ def evaluate(args, model, device, tokenizer, albert_tokenizer):
     result = []
     for i, (inputs_sentence, inputs_chunk, labels) in enumerate(eval_dataloader):
         with torch.no_grad():
-            inputs_sentence, labels = inputs_sentence.to(device), labels.to(device)
-            loss, kl, logits = model(inputs_sentence["input_ids"], inputs_sentence["attention_mask"], inputs_sentence["token_type_ids"], None, labels)
+            inputs_sentence,inputs_chunk, labels = inputs_sentence.to(device),inputs_chunk.to(device), labels.to(device)
+            loss, kl, logits = model(inputs_sentence["input_ids"], inputs_sentence["attention_mask"], inputs_sentence["token_type_ids"], labels,keyword_mask=inputs_chunk)
             total_val_loss += loss.item()
             logits = logits.detach().cpu().numpy()
             label_ids = labels.to('cpu').numpy()
@@ -333,14 +334,11 @@ def run(args):
     for iter in range(args["num_train_epochs"]):
         model.train()
         num_batches = len(train_loader)
-        # if args["read_data"]:
-            # results = evaluate(args, model, device, albert_tokenizer, tokenizer)
-
         for index, (inputs_sentence, inputs_chunk, labels) in enumerate(
                 tqdm(train_loader, total=num_batches, position=0, leave=False)):
-            inputs_sentence, labels = inputs_sentence.to(device), labels.to(device)
+            inputs_sentence,inputs_chunk, labels = inputs_sentence.to(device),inputs_chunk.to(device), labels.to(device)
             outputs = model(inputs_sentence["input_ids"], inputs_sentence["attention_mask"],
-                            inputs_sentence["token_type_ids"], None, labels)
+                            inputs_sentence["token_type_ids"], labels,keyword_mask=inputs_chunk)
 
             if args["baseline"]:
                 outputs = outputs[0]
@@ -361,15 +359,14 @@ def run(args):
 
             # 打印当前的学习率
             current_lr = optimizer.param_groups[0]['lr']
-            print(f"Current Learning Rate: {current_lr:.6f}")
+            tqdm(f"Current Learning Rate: {current_lr:.6f}")
 
             loss_log.set_description_str(loss_str)
 
         # 在每个 epoch 结束后进行评估
         results = evaluate(args, model, device, tokenizer, albert_tokenizer)
         eval_acc = results["acc"]  # 假设你的 evaluate 函数返回了 eval_accuracy
-        eval_loss = results["val_loss"]  # 假设 evaluate 函数返回了 eval_loss
-        print("epoch:", iter)
+        tqdm("epoch:", iter)
 
         # 判断是否是最佳模型
         if eval_acc > best_eval_acc:

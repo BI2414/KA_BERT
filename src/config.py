@@ -47,7 +47,7 @@ def get_argparse():
 
     parser.add_argument('--aug', type=int, default=1, help="是否使用字扰动增强方案")
     
-    parser.add_argument('--test', type=int, default=1, help="是否为测试状态, 1表示测试，0表示训练或验证")
+    parser.add_argument('--test', type=int, default=0, help="是否为测试状态, 1表示测试，0表示训练或验证")
     
     parser.add_argument('--read_data', type=int, default=1, help="0表示读取pickle")
     
