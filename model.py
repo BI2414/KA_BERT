@@ -6,7 +6,6 @@ from torch.nn import CrossEntropyLoss
 from math import sqrt
 from transformers import BertTokenizer, BertForSequenceClassification, BertConfig
 import torch.nn.functional as F
-from block.KeywordAttention import KeywordAttention
 from block.KeywordAttentionLayer import KeywordAttentionLayer
 
 
@@ -47,9 +46,19 @@ class NewBert(nn.Module):
                                       nn.Linear(args["hidden_size"],
                                                 2))
 
-    def forward(self, input_ids, attention_mask, token_type_ids, labels, keyword_mask=None):
+    def forward(self, input_ids, attention_mask, token_type_ids, labels, keyword_mask):
         # 获取 BERT 输出
-        hiddens = self.bert(input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)[0]
+        input_ids = input_ids.view(-1, input_ids.size(-1))
+        attention_mask = attention_mask.view(-1, attention_mask.size(-1))
+        token_type_ids = token_type_ids.view(-1, token_type_ids.size(-1))
+
+        outputs = self.bert_model(input_ids=input_ids,
+                                  attention_mask=attention_mask,
+                                  token_type_ids=token_type_ids,
+                                  labels=labels)
+
+        # 获取最后一层的隐藏状态
+        hiddens = outputs.hidden_states[-1]  # 最后一层隐状态
         if self.args["aug"]:
             # 使用 keyword_mask 增强隐藏层
             if keyword_mask is not None:

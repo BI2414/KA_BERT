@@ -33,7 +33,7 @@ from nni.utils import merge_parameter
 
 args = get_argparse().parse_args()
 args = vars(args)
-os.environ['CUDA_LAUNCH_BLOCKING'] = '0' # 禁止并行
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # 禁止并行
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args["gpu_id"])
 # os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 procname = str(args["name"]) + "test" if args["test"] else str(args["name"])
@@ -338,7 +338,7 @@ def run(args):
                 tqdm(train_loader, total=num_batches, position=0, leave=False)):
             inputs_sentence,inputs_chunk, labels = inputs_sentence.to(device),inputs_chunk.to(device), labels.to(device)
             outputs = model(inputs_sentence["input_ids"], inputs_sentence["attention_mask"],
-                            inputs_sentence["token_type_ids"], labels,keyword_mask=inputs_chunk)
+                            inputs_sentence["token_type_ids"], labels,inputs_chunk)
 
             if args["baseline"]:
                 outputs = outputs[0]

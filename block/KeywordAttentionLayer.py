@@ -1,6 +1,5 @@
 import torch.nn as nn
 
-
 class KeywordAttentionLayer(nn.Module):
     def __init__(self, hidden_size, attention_heads=1):
         super().__init__()
