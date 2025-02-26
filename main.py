@@ -58,20 +58,19 @@ def to_list(tensor):
     return tensor.detach().cpu().tolist()
 
 class MyDataset(Dataset):
-    def __init__(self, features, features_chunks, labels):
+    def __init__(self, features, labels):
         self.features = features
-        self.features_chunks = features_chunks
         self.labels = labels
 
     def __getitem__(self, index):
-        return self.features[index], self.features_chunks[index], self.labels[index]
+        return self.features[index], self.labels[index]
 
     def __len__(self):
         return len(self.features)
 
-def get_dataloader(args, features, features_chunks, labels, batch_size,  is_training):
+def get_dataloader(args, features, labels, batch_size,  is_training):
     '''加载数据构建dataset，获取dataloader'''
-    dataset = MyDataset(features=features, features_chunks=features_chunks, labels=labels)
+    dataset = MyDataset(features=features, labels=labels)
     dataloader = DataLoader(dataset,
                             batch_size=batch_size,
                             shuffle=is_training,
@@ -92,18 +91,12 @@ def save_model(args, model):
 
 def test(args, model, device, tokenizer, albert_tokenizer):
     if args["read_data"]:
-        examples, chunks = read_examples(args["dev_file"], args["name"],
-                                         is_training=False)
+        examples = read_examples(args["dev_file"], args["name"],is_training=False)
 
-        # chunks_examples是直接返回的tokenizer之后的内容；
-        test_features, test_chunks_features, labels = convert_examples_to_features(args, examples, chunks,
-                                                                                   albert_tokenizer, tokenizer,
-                                                                                   args["max_len"],
-                                                                                   is_training=False)
+        test_features, labels = convert_examples_to_features(args, examples,albert_tokenizer, tokenizer,args["max_len"],is_training=False)
         pickle_file = os.path.join(args["pickle_folder"], "test_features_{}.pkl".format(args["name"]))
         test_data = {
             "test_features": test_features,
-            "test_chunks_features": test_chunks_features,
             "labels": labels
         }
         with open(pickle_file, "wb") as f:
@@ -113,11 +106,9 @@ def test(args, model, device, tokenizer, albert_tokenizer):
         pickle_file = os.path.join(args["pickle_folder"], "test_features_{}.pkl".format(args["name"]))
         with open(pickle_file, "rb") as f:
             test_data = pickle.load(f)
-        test_features, test_chunks_features, labels = test_data["test_features"], test_data["test_chunks_features"], \
-        test_data["labels"]
+        test_features, labels = test_data["test_features"], test_data["labels"]
 
-    test_dataloader = get_dataloader(args, test_features, test_chunks_features, labels, args["test_batch_size"],
-                                     is_training=False)
+    test_dataloader = get_dataloader(args, test_features, labels, args["test_batch_size"],is_training=False)
 
     model.eval()
 
@@ -170,17 +161,13 @@ def test(args, model, device, tokenizer, albert_tokenizer):
 
 def evaluate(args, model, device, tokenizer, albert_tokenizer):
     if args["read_data"] or args["name"] == "MNLIMM":
-        examples, chunks = read_examples(args["dev_file"], args["name"],
-                                    is_training=False)
-        eval_features, eval_chunks_features, labels = convert_examples_to_features(args, examples, chunks, albert_tokenizer,tokenizer,
-                                                args["max_len"],
-                                                is_training=False)
+        examples = read_examples(args["dev_file"], args["name"],is_training=False)
+        eval_features, labels = convert_examples_to_features(args, examples, albert_tokenizer,tokenizer,args["max_len"],is_training=False)
         if not os.path.exists(args["pickle_folder"]):
             os.makedirs(args["pickle_folder"])
         pickle_file = os.path.join(args["pickle_folder"], "evaluate_features_{}.pkl".format(args["name"]))
         eval_data = {
             "eval_features": eval_features,
-            "eval_chunks_features": eval_chunks_features,
             "labels":labels
         }
         with open(pickle_file, "wb") as f:
@@ -190,12 +177,12 @@ def evaluate(args, model, device, tokenizer, albert_tokenizer):
         pickle_file = os.path.join(args["pickle_folder"], "evaluate_features_{}.pkl".format(args["name"]))
         with open(pickle_file, "rb") as f:
             eval_data = pickle.load(f)
-        eval_features, eval_chunks_features, labels = eval_data["eval_features"], eval_data["eval_chunks_features"], eval_data["labels"]
+        eval_features, labels = eval_data["eval_features"], eval_data["labels"]
 
     if not os.path.exists(args["output_dir"]):
         os.makedirs(args["output_dir"])
 
-    eval_dataloader = get_dataloader(args, eval_features, eval_chunks_features, labels, args["test_batch_size"], is_training=False)
+    eval_dataloader = get_dataloader(args, eval_features, labels, args["test_batch_size"], is_training=False)
 
     model.eval()
 
@@ -277,8 +264,8 @@ def run(args):
     # 训练集features写入到pkl
     if args["read_data"]:
         # 读取并处理训练数据
-        train_examples, train_chunks = read_examples(args["train_file"], args["name"], is_training=True)
-        train_features, train_chunks_features, labels = convert_examples_to_features(args, train_examples, train_chunks,
+        train_examples = read_examples(args["train_file"], args["name"], is_training=True)
+        train_features, labels = convert_examples_to_features(args, train_examples,
                                                                                      albert_tokenizer,
                                                                                      tokenizer, args["max_len"],
                                                                                      is_training=True)
@@ -287,7 +274,6 @@ def run(args):
         pickle_file = os.path.join(args["pickle_folder"], "train_features_{}.pkl".format(name))
         train_data = {
             "train_features": train_features,
-            "train_chunks_features": train_chunks_features,
             "labels": labels
         }
         with open(pickle_file, "wb") as f:
@@ -298,17 +284,14 @@ def run(args):
         assert os.path.exists(pickle_file), "you must create pickle file set option --read_data"
         with open(pickle_file, "rb") as f:
             train_data = pickle.load(f)
-        train_features, train_chunks_features, labels = train_data["train_features"], train_data[
-            "train_chunks_features"], train_data["labels"]
+        train_features, labels = train_data["train_features"], train_data["labels"]
         if not args["test"]:
             length = int(args['ratio'] * len(train_data["train_features"]))
         else:
             length = len(train_data["train_features"])
-        train_features, train_chunks_features, labels = train_features[:length], train_chunks_features[:length], labels[
-                                                                                                                 :length]
+        train_features, labels = train_features[:length], labels[:length]
 
-    train_loader = get_dataloader(args, train_features, train_chunks_features, labels, args["batch_size"],
-                                  is_training=True)
+    train_loader = get_dataloader(args, train_features, labels, args["batch_size"],is_training=True)
 
     # 模型
     encodermodel = NewBert(args)  # 主模型
@@ -366,7 +349,7 @@ def run(args):
         results = evaluate(args, model, device, tokenizer, albert_tokenizer)
         eval_acc = results["acc"]  # 假设你的 evaluate 函数返回了 eval_accuracy
         tqdm("epoch:", iter)
-
+        torch.cuda.empty_cache()
         # 判断是否是最佳模型
         if eval_acc > best_eval_acc:
             best_eval_acc = eval_acc

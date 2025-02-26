@@ -39,7 +39,7 @@ def get_argparse():
 
     parser.add_argument('--uniform', type=int, default=0, help = "是否采用均匀分布的噪声")
 
-    parser.add_argument('--hidden_size', type=int, default=512)
+    parser.add_argument('--hidden_size', type=int, default=768)
     
     parser.add_argument('--beta', type=float, default=0.5, help="aug使用的loss参数")
     
