@@ -46,6 +46,12 @@ class NewBert(nn.Module):
                                                 2))
 
     def forward(self, input_ids, attention_mask, token_type_ids, labels, keyword_mask):
+
+        with torch.no_grad():
+            outputs = self.bert_model(input_ids, attention_mask)
+            attention_weights = outputs.attentions[-1]  # 取最后一层注意力权重
+            # 假设选择每个位置中注意力权重最高的token作为关键词
+            keyword_mask = (attention_weights.mean(dim=1) > 0.5).any(dim=1)  # [batch, seq_len]
         # 获取 BERT 输出
         input_ids = input_ids.view(-1, input_ids.size(-1))
         attention_mask = attention_mask.view(-1, attention_mask.size(-1))

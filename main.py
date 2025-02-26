@@ -12,9 +12,7 @@ transformers.logging.set_verbosity_error()
 import numpy as np
 import pandas as pd
 import torch
-print(torch.cuda.is_available())
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(device)  # 输出当前设备
 import torch.nn as nn
 from torch.nn import CrossEntropyLoss
 from sklearn import metrics
@@ -63,7 +61,14 @@ class MyDataset(Dataset):
         self.labels = labels
 
     def __getitem__(self, index):
-        return self.features[index], self.labels[index]
+        feature = self.features[index]
+        label = self.labels[index]
+        return {
+            "input_ids": feature["input_ids"].squeeze(0),  # 去掉 batch 维度
+            "attention_mask": feature["attention_mask"].squeeze(0),
+            "token_type_ids": feature["token_type_ids"].squeeze(0),
+            "keyword_mask": feature["keyword_mask"].squeeze(0),  # 返回 keyword_mask
+        }, label
 
     def __len__(self):
         return len(self.features)
@@ -113,18 +118,17 @@ def test(args, model, device, tokenizer, albert_tokenizer):
     model.eval()
 
     result = []
-    for i, (feature_batch, feature_chunk_batch, label_batch) in enumerate(tqdm(test_dataloader)):
+    for i, (feature_batch, label_batch) in enumerate(tqdm(test_dataloader)):
         with torch.no_grad():
             # 将 feature_batch 拆分为 input_ids, attention_mask, token_type_ids
             input_ids = feature_batch["input_ids"].to(device)
             attention_mask = feature_batch["attention_mask"].to(device)
             token_type_ids = feature_batch["token_type_ids"].to(device)
-            input_chunk = feature_chunk_batch.to(device)
+            keyword_mask  = feature_batch["keyword_mask "].to(device)
             labels = label_batch.to(device)
-            inputs_chunk = inputs_chunk.to(device)  # 确保传递 keyword_mask
 
             # 调用模型
-            outputs = model(input_ids, attention_mask, token_type_ids, labels,keyword_mask=inputs_chunk)
+            outputs = model(input_ids, attention_mask, token_type_ids, labels,keyword_mask)
             if args["baseline"] == 1:  # 不同模型forward值不同
                 loss, logits = outputs[0], outputs[1]
             else:
@@ -188,10 +192,10 @@ def evaluate(args, model, device, tokenizer, albert_tokenizer):
 
     total_val_loss, total_eval_accuracy, total_eval_f1 = 0, 0, 0.0
     result = []
-    for i, (inputs_sentence, inputs_chunk, labels) in enumerate(eval_dataloader):
+    for i, (inputs_sentence, labels) in enumerate(eval_dataloader):
         with torch.no_grad():
-            inputs_sentence,inputs_chunk, labels = inputs_sentence.to(device),inputs_chunk.to(device), labels.to(device)
-            loss, kl, logits = model(inputs_sentence["input_ids"], inputs_sentence["attention_mask"], inputs_sentence["token_type_ids"], labels,keyword_mask=inputs_chunk)
+            inputs_sentence, labels = inputs_sentence.to(device), labels.to(device)
+            loss, kl, logits = model(inputs_sentence["input_ids"], inputs_sentence["attention_mask"], inputs_sentence["token_type_ids"], labels,inputs_sentence["keyword_mask"])
             total_val_loss += loss.item()
             logits = logits.detach().cpu().numpy()
             label_ids = labels.to('cpu').numpy()
@@ -316,11 +320,15 @@ def run(args):
     for iter in range(args["num_train_epochs"]):
         model.train()
         num_batches = len(train_loader)
-        for index, (inputs_sentence, inputs_chunk, labels) in enumerate(
-                tqdm(train_loader, total=num_batches, position=0, leave=False)):
-            inputs_sentence,inputs_chunk, labels = inputs_sentence.to(device),inputs_chunk.to(device), labels.to(device)
-            outputs = model(inputs_sentence["input_ids"], inputs_sentence["attention_mask"],
-                            inputs_sentence["token_type_ids"], labels,inputs_chunk)
+        for index, (inputs, labels) in enumerate(tqdm(train_loader, total=num_batches, position=0, leave=False)):
+            inputs_sentence = inputs["input_ids"].to(device)
+            attention_mask = inputs["attention_mask"].to(device)
+            token_type_ids = inputs["token_type_ids"].to(device)
+            keyword_mask = inputs["keyword_mask"].to(device)  # 获取 keyword_mask
+            labels = labels.to(device)
+
+            # 将 keyword_mask 传递给模型
+            outputs = model(inputs_sentence, attention_mask, token_type_ids, labels, keyword_mask)
 
             if args["baseline"]:
                 outputs = outputs[0]

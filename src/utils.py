@@ -11,6 +11,9 @@ ROOT_DIR = os.path.abspath("data/wyh/graduate/New")
 sys.path.append(ROOT_DIR)
 # from block.calculate import PTM_keyword_extractor_yake
 from src.config import get_argparse
+from sklearn.feature_extraction.text import TfidfVectorizer
+import numpy as np
+import torch
 args = get_argparse().parse_args()
 class Example:
     def __init__(self, sentence1, sentence2):
@@ -56,7 +59,7 @@ def read_RTE(input_file, is_training):
                 label = 1 if row["label"] == "entailment" else 0
         example = MatchExample(row['sentence1'], row['sentence2'], label)
         # print(index, PTM_keyword_extractor_yake(row['sentence1']))
-        print(index)
+        #print(index)
         examples.append(example)
     return examples
 
@@ -87,7 +90,7 @@ def read_SICK(input_file, is_training):
         df = pd.read_csv(dir, sep = '\t', header=0, quoting=3)
         for index, row in df.iterrows():
             if (suffix == "test" and row["SemEval_set"] == "TEST") or (suffix == "train" and row["SemEval_set"] == "TRAIN"):
-                # print(index)
+                # #print(index)
                 sentence1 = row["sentence_A"]
                 sentence2 = row["sentence_B"]
                 label = row["entailment_label"]
@@ -103,7 +106,7 @@ def read_SICK(input_file, is_training):
         dir = 'data/wyh/graduate/NEW_SICK/sick_new_train.tsv'
         df = pd.read_csv(dir, sep = '\t', header=0, quoting=3)
         for index, row in df.iterrows():
-            print(index)
+            #print(index)
             sentence1 = row["sentence1"]
             sentence2 = row["sentence2"]
             label = row["label"]
@@ -122,7 +125,7 @@ def read_QNLI(input_file, is_training):
 
     examples, chunks = [], []
     for index, row in df.iterrows():
-        print(index)
+        #print(index)
         # if index > 10000:break
         if args.test:label = 0
         else:
@@ -144,7 +147,7 @@ def read_QQP(input_file, is_training):
     df = pd.read_csv(dir_, sep = '\t', header=0, quoting=3)
     examples, chunks = [], []
     for index, row in df.iterrows():
-        print(index)
+        #print(index)
         # if index > 1000:break
         label = 0 if args.test else int(row["is_duplicate"])
         example = MatchExample(row['question1'], row['question2'], label)
@@ -164,7 +167,7 @@ def read_STSB(input_file, is_training):
 
     examples, chunks = [], []
     for index, row in df.iterrows():
-        print(index)
+        #print(index)
         example = MatchExample(row['sentence1'], row['sentence2'], int(row['score']))
         examples.append(example)
     return examples
@@ -179,7 +182,7 @@ def read_MRPC(input_file, is_training):
     index = 0
     with open(dir_, encoding="utf-8") as f:
         for row in f:
-            print(index)
+            #print(index)
             # if index > 200:break
             index += 1
             label, id1, id2, s1, s2 = row.strip().split('\t')
@@ -205,7 +208,7 @@ def read_MRPC_aug(input_file, is_training):
     #     # if i > 100:break
     with open(input, encoding="utf-8") as f:
         for row in f:
-            print(index)
+            #print(index)
             # if index > 200:break
             index += 1
             label, id1, id2, s1, s2 = row.strip().split('\t')
@@ -229,7 +232,7 @@ def read_MNLIM(input_file, is_training):
     
     examples, chunks = [], []
     for index, row in df.iterrows():
-        print(index)
+        #print(index)
         if args.test:
             label = 0
         else:
@@ -257,7 +260,7 @@ def read_MNLIMM(input_file, is_training):
     
     examples, chunks = [], []
     for index, row in df.iterrows():
-        print(index)
+        #print(index)
         if args.test:
             label = 0
         else:
@@ -292,7 +295,7 @@ def read_BQ(input_file, is_training):
         example = MatchExample(row['sentence1'], row['sentence2'], label)
         # print(index, PTM_keyword_extractor_yake(row['sentence1']))
         examples.append(example)
-        print(index)
+        #print(index)
     return examples
 
 def read_LCQMC(input_file, is_training):
@@ -315,7 +318,7 @@ def read_LCQMC(input_file, is_training):
                 label = 1 if row["label"] == "entailment" else 0
         example = MatchExample(row['sentence1'], row['sentence2'], label)
         # print(index, PTM_keyword_extractor_yake(row['sentence1']))
-        print(index)
+        #print(index)
         examples.append(example)
     return examples
 
@@ -394,19 +397,41 @@ def read_examples(input_file, name, is_training):
 
 def convert_examples_to_features(args, examples, albert_tokenizer, tokenizer, max_len, is_training):
     features_examples, labels = [], []
-    
-    for (example) in zip(examples):
-        pair_tokens_example  = tokenizer(example.sentence1, example.sentence2,
-                            max_length=args["max_len"],
-                            truncation=True,  # 超过最大长度截断
-                            padding='max_length',
-                             return_tensors="pt",
-                            add_special_tokens=True)  # 添加默认的token
-        
-        features_examples.append(pair_tokens_example)
+    texts = [example.sentence1 + " " + example.sentence2 for example in examples]  # 提取文本数据
 
+    # 使用 TF-IDF 提取关键词
+    vectorizer = TfidfVectorizer()
+    tfidf_matrix = vectorizer.fit_transform(texts)  # 计算 TF-IDF 矩阵
+
+    for idx, example in enumerate(examples):
+        # 对每个样本生成 keyword_mask
+        text = texts[idx]
+        tokens = tokenizer.tokenize(text)
+        tfidf_scores = tfidf_matrix[idx].toarray().flatten()
+        topk_indices = np.argsort(tfidf_scores)[-args["k_keywords"]:]  # 选择 TF-IDF 最高的前 k 个词
+        keyword_mask = [1 if i in topk_indices else 0 for i in range(len(tokens))]
+
+        # 将 keyword_mask 填充到最大长度
+        if len(keyword_mask) < max_len:
+            keyword_mask += [0] * (max_len - len(keyword_mask))
+        else:
+            keyword_mask = keyword_mask[:max_len]
+
+        # 使用 tokenizer 处理文本
+        pair_tokens_example = tokenizer(
+            example.sentence1, example.sentence2,
+            max_length=max_len,
+            truncation=True,  # 超过最大长度截断
+            padding='max_length',
+            return_tensors="pt",
+            add_special_tokens=True  # 添加默认的token
+        )
+
+        # 将 keyword_mask 添加到特征中
+        pair_tokens_example["keyword_mask"] = torch.tensor(keyword_mask, dtype=torch.long)
+        features_examples.append(pair_tokens_example)
         labels.append(example.label)
-        
+
     return features_examples, labels
 
 def get_grad(model):
