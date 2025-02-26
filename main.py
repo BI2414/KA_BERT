@@ -90,7 +90,6 @@ def save_model(args, model):
     ckpt_file = os.path.join(args["model_dir"], "bert_base_{}.pt".format(args["name"]))
     torch.save(model, ckpt_file)
 
-
 def test(args, model, device, tokenizer, albert_tokenizer):
     if args["read_data"]:
         examples, chunks = read_examples(args["dev_file"], args["name"],

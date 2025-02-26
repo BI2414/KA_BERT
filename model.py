@@ -19,7 +19,6 @@ class GaussianKLLoss(nn.Module):
         kl = 0.5 * torch.sum(logvar2 - logvar1 + fraction - 1, dim=1)
         return kl.mean(dim=0)
 
-
 class NewBert(nn.Module):
     def __init__(self, args):
         super(NewBert, self).__init__()

@@ -15,3 +15,4 @@ class KeywordAttentionLayer(nn.Module):
         # 残差连接 + 层归一化
         output = self.norm(bert_output + attn_output)
         return output
+

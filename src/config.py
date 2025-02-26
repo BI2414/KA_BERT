@@ -108,7 +108,7 @@ def get_argparse():
                         help='L2 regularization parameter')
 
     # other
-    parser.add_argument('--name', type=str, default='RTE', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
+    parser.add_argument('--name', type=str, default='MRPC', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
     # parser.add_argument('--name', type=str, default='LCQMC', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
     # parser.add_argument('--name', type=str, default='PAWS', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
     # parser.add_argument('--name', type=str, default='BQ', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
