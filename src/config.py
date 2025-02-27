@@ -37,7 +37,7 @@ def get_argparse():
 
     parser.add_argument('--seed', type=int, default=1234, help = "随机种子")
 
-    parser.add_argument('--uniform', type=int, default=1, help = "是否采用均匀分布的噪声")
+    parser.add_argument('--uniform', type=int, default=0, help = "是否采用均匀分布的噪声")
 
     parser.add_argument('--hidden_size', type=int, default=768)
     
@@ -47,7 +47,7 @@ def get_argparse():
 
     parser.add_argument('--aug', type=int, default=1, help="是否使用字扰动增强方案")
     
-    parser.add_argument('--test', type=int, default=1, help="是否为测试状态, 1表示测试，0表示训练或验证")
+    parser.add_argument('--test', type=int, default=0, help="是否为测试状态, 1表示测试，0表示训练或验证")
     
     parser.add_argument('--read_data', type=int, default=1, help="0表示读取pickle")
     

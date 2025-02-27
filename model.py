@@ -77,6 +77,9 @@ class NewBert(nn.Module):
 
         # 获取最后一层的隐藏状态
         hiddens = outputs.hidden_states[-1]  # 最后一层隐状态
+        print(f"hiddens shape: {hiddens.shape}")
+        print(f"keyword_mask shape: {keyword_mask.shape}")
+
         if self.args["aug"]:
             # 使用 keyword_mask 增强隐藏层
             if keyword_mask is not None:
@@ -101,7 +104,7 @@ class NewBert(nn.Module):
                 mask = attention_mask.view(-1)
                 # 假设 mask 的形状应该是 [12288]
                 #还要修改有问题
-                mask = mask[:12288]  # 截断或填充掩码，使其形状与目标张量一致
+                # mask = mask[:12288]  # 截断或填充掩码，使其形状与目标张量一致
                 indices = (mask == 1)
                 mu_logvar = self.noise_net(hiddens)
                 mu, log_var = torch.chunk(mu_logvar, 2, dim=-1)
@@ -116,14 +119,7 @@ class NewBert(nn.Module):
                 kl_criterion = GaussianKLLoss()
                 # 确保 mu 的形状与掩码一致
                 h = hiddens.size(-1)
-                mu = mu.contiguous().view(-1, h)  # [12288, 768]
-
-                # 确保掩码的形状与目标张量一致
-                mask = mask[:12288]  # 截断或填充掩码
-
-                # 使用掩码索引目标张量
-                indices = (mask == 1)
-                _mu = mu[indices]  # 使用掩码索引
+                _mu = mu.view(-1, h)[indices]
                 _log_var = log_var.view(-1, h)[indices]
                 _prior_mu = prior_mu.view(-1, h)[indices]
                 _prior_logvar = prior_logvar.view(-1, h)[indices]

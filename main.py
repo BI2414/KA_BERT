@@ -273,8 +273,7 @@ def run(args):
     if args["read_data"]:
         # 读取并处理训练数据
         train_examples = read_examples(args["train_file"], args["name"], is_training=True)
-        train_features, labels = convert_examples_to_features(args, train_examples,
-                                                                                     albert_tokenizer,
+        train_features, labels = convert_examples_to_features(args, train_examples,albert_tokenizer,
                                                                                      tokenizer, args["max_len"],
                                                                                      is_training=True)
         if not os.path.exists(args["pickle_folder"]):
