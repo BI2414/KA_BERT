@@ -37,7 +37,7 @@ def get_argparse():
 
     parser.add_argument('--seed', type=int, default=1234, help = "随机种子")
 
-    parser.add_argument('--uniform', type=int, default=0, help = "是否采用均匀分布的噪声")
+    parser.add_argument('--uniform', type=int, default=1, help = "是否采用均匀分布的噪声")
 
     parser.add_argument('--hidden_size', type=int, default=768)
     
@@ -47,9 +47,9 @@ def get_argparse():
 
     parser.add_argument('--aug', type=int, default=1, help="是否使用字扰动增强方案")
     
-    parser.add_argument('--test', type=int, default=0, help="是否为测试状态, 1表示测试，0表示训练或验证")
+    parser.add_argument('--test', type=int, default=1, help="是否为测试状态, 1表示测试，0表示训练或验证")
     
-    parser.add_argument('--read_data', type=int, default=0, help="0表示读取pickle")
+    parser.add_argument('--read_data', type=int, default=1, help="0表示读取pickle")
     
     parser.add_argument('--gate', type=int, default=0, help="0表示不使用gate网络")
     
@@ -79,6 +79,7 @@ def get_argparse():
     parser.add_argument('--output_dim', type=int, default=768, help = "最后进行cosin相似度计算的embeding纬度")
 
     parser.add_argument('--max_len', type=int, default=128, help = "pair长度")
+    parser.add_argument('--k_keywords', type=int, default=3, help = "关键词长度")
 
     # 文件路径
 
@@ -108,7 +109,7 @@ def get_argparse():
                         help='L2 regularization parameter')
 
     # other
-    parser.add_argument('--name', type=str, default='RTE', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
+    parser.add_argument('--name', type=str, default='MRPC', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
     # parser.add_argument('--name', type=str, default='LCQMC', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
     # parser.add_argument('--name', type=str, default='PAWS', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")
     # parser.add_argument('--name', type=str, default='BQ', help="用来指明当前训练的进程名、tensorboard文件名、将要保存的模型名")

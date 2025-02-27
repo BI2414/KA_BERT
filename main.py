@@ -28,7 +28,6 @@ from logger import logger
 from src.utils import convert_examples_to_features, read_examples
 # from CrossModel import Cross_Model # 导入cross_attention模型
 from nni.utils import merge_parameter
-
 args = get_argparse().parse_args()
 args = vars(args)
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # 禁止并行
@@ -118,17 +117,17 @@ def test(args, model, device, tokenizer, albert_tokenizer):
     model.eval()
 
     result = []
-    for i, (feature_batch, label_batch) in enumerate(tqdm(test_dataloader)):
+    for i, (inputs, labels) in enumerate(tqdm(test_dataloader)):
         with torch.no_grad():
             # 将 feature_batch 拆分为 input_ids, attention_mask, token_type_ids
-            input_ids = feature_batch["input_ids"].to(device)
-            attention_mask = feature_batch["attention_mask"].to(device)
-            token_type_ids = feature_batch["token_type_ids"].to(device)
-            keyword_mask  = feature_batch["keyword_mask "].to(device)
-            labels = label_batch.to(device)
+            inputs_sentence = inputs["input_ids"].to(device)
+            attention_mask = inputs["attention_mask"].to(device)
+            token_type_ids = inputs["token_type_ids"].to(device)
+            keyword_mask = inputs["keyword_mask"].to(device)  # 获取 keyword_mask
+            labels = labels.to(device)
 
             # 调用模型
-            outputs = model(input_ids, attention_mask, token_type_ids, labels,keyword_mask)
+            outputs = model(inputs_sentence, attention_mask, token_type_ids, labels,keyword_mask)
             if args["baseline"] == 1:  # 不同模型forward值不同
                 loss, logits = outputs[0], outputs[1]
             else:
@@ -192,10 +191,15 @@ def evaluate(args, model, device, tokenizer, albert_tokenizer):
 
     total_val_loss, total_eval_accuracy, total_eval_f1 = 0, 0, 0.0
     result = []
-    for i, (inputs_sentence, labels) in enumerate(eval_dataloader):
+    for i, (inputs, labels) in enumerate(eval_dataloader):
         with torch.no_grad():
-            inputs_sentence, labels = inputs_sentence.to(device), labels.to(device)
-            loss, kl, logits = model(inputs_sentence["input_ids"], inputs_sentence["attention_mask"], inputs_sentence["token_type_ids"], labels,inputs_sentence["keyword_mask"])
+            inputs_sentence = inputs["input_ids"].to(device)
+            attention_mask = inputs["attention_mask"].to(device)
+            token_type_ids = inputs["token_type_ids"].to(device)
+            keyword_mask = inputs["keyword_mask"].to(device)  # 获取 keyword_mask
+            labels = labels.to(device)
+
+            loss, kl, logits = model(inputs_sentence, attention_mask, token_type_ids, labels,keyword_mask)
             total_val_loss += loss.item()
             logits = logits.detach().cpu().numpy()
             label_ids = labels.to('cpu').numpy()
@@ -356,7 +360,7 @@ def run(args):
         # 在每个 epoch 结束后进行评估
         results = evaluate(args, model, device, tokenizer, albert_tokenizer)
         eval_acc = results["acc"]  # 假设你的 evaluate 函数返回了 eval_accuracy
-        tqdm("epoch:", iter)
+        print("epoch:", iter)
         torch.cuda.empty_cache()
         # 判断是否是最佳模型
         if eval_acc > best_eval_acc:
