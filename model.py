@@ -24,7 +24,9 @@ class NewBert(nn.Module):
         super(NewBert, self).__init__()
         self.model_name = args["model"]
         self.bert_model = BertForSequenceClassification.from_pretrained(
-            args["model"], num_labels=args["n_class"])
+            args["model"], num_labels=args["n_class"], output_attentions=True, output_hidden_states=True
+        )
+
         self.noise_net = nn.Sequential(nn.Linear(args["hidden_size"],
                                                  args["hidden_size"]),
                                        nn.ReLU(),
@@ -47,9 +49,16 @@ class NewBert(nn.Module):
 
     def forward(self, input_ids, attention_mask, token_type_ids, labels, keyword_mask):
 
+        # 第一次调用 BERT 获取注意力权重和隐藏状态
         with torch.no_grad():
-            outputs = self.bert_model(input_ids, attention_mask)
+            outputs = self.bert_model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_attentions=True,
+                output_hidden_states=True  # 必须显式指定
+            )
             attention_weights = outputs.attentions[-1]  # 取最后一层注意力权重
+
             # 假设选择每个位置中注意力权重最高的token作为关键词
             keyword_mask = (attention_weights.mean(dim=1) > 0.5).any(dim=1)  # [batch, seq_len]
         # 获取 BERT 输出
@@ -57,10 +66,14 @@ class NewBert(nn.Module):
         attention_mask = attention_mask.view(-1, attention_mask.size(-1))
         token_type_ids = token_type_ids.view(-1, token_type_ids.size(-1))
 
-        outputs = self.bert_model(input_ids=input_ids,
-                                  attention_mask=attention_mask,
-                                  token_type_ids=token_type_ids,
-                                  labels=labels)
+        # 第二次调用 BERT 获取隐藏状态
+        outputs = self.bert_model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            labels=labels,
+            output_hidden_states=True  # 必须显式指定
+        )
 
         # 获取最后一层的隐藏状态
         hiddens = outputs.hidden_states[-1]  # 最后一层隐状态
@@ -86,6 +99,9 @@ class NewBert(nn.Module):
                 noise = uniform_noise
             else:
                 mask = attention_mask.view(-1)
+                # 假设 mask 的形状应该是 [12288]
+                #还要修改有问题
+                mask = mask[:12288]  # 截断或填充掩码，使其形状与目标张量一致
                 indices = (mask == 1)
                 mu_logvar = self.noise_net(hiddens)
                 mu, log_var = torch.chunk(mu_logvar, 2, dim=-1)
@@ -98,8 +114,16 @@ class NewBert(nn.Module):
                 prior_logvar = torch.log(prior_var)
 
                 kl_criterion = GaussianKLLoss()
+                # 确保 mu 的形状与掩码一致
                 h = hiddens.size(-1)
-                _mu = mu.view(-1, h)[indices]
+                mu = mu.contiguous().view(-1, h)  # [12288, 768]
+
+                # 确保掩码的形状与目标张量一致
+                mask = mask[:12288]  # 截断或填充掩码
+
+                # 使用掩码索引目标张量
+                indices = (mask == 1)
+                _mu = mu[indices]  # 使用掩码索引
                 _log_var = log_var.view(-1, h)[indices]
                 _prior_mu = prior_mu.view(-1, h)[indices]
                 _prior_logvar = prior_logvar.view(-1, h)[indices]
