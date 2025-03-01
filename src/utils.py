@@ -172,9 +172,6 @@ def read_STSB(input_file, is_training):
 
 def read_MRPC(input_file, is_training):
     '''二分类'''
-    suffix = ["msr_paraphrase_train.txt", "msr_paraphrase_test.txt"]
-    suffix = suffix[0] if is_training else suffix[-1] 
-    # dir_ = os.path.join(input_file, suffix)
     dir_ = "data/wjh/graduate/AugData/MRPC/msr_paraphrase_test.txt"
     examples, chunks = [], []
     index = 0
@@ -213,7 +210,6 @@ def read_MRPC_aug(input_file, is_training):
             if len(label) > 1:continue
             example = MatchExample(s1, s2, int(label))
             examples.append(example)
-    print("total train items:", index)
     return examples
 
 def read_MNLIM(input_file, is_training):
@@ -316,7 +312,7 @@ def read_LCQMC(input_file, is_training):
                 label = 1 if row["label"] == "entailment" else 0
         example = MatchExample(row['sentence1'], row['sentence2'], label)
         # print(index, PTM_keyword_extractor_yake(row['sentence1']))
-        #print(index)
+        print(index)
         examples.append(example)
     return examples
 
@@ -355,8 +351,6 @@ def read_PAWS(input_file, is_training):
         # 创建 MatchExample
         example = MatchExample(sentence1, sentence2, label)
         examples.append(example)
-        # 打印进度
-        print(f"Processed row {index}: sentence1='{sentence1}', sentence2='{sentence2}', label={label}")
 
     return examples
 

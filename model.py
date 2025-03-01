@@ -45,7 +45,7 @@ class NewBert(nn.Module):
                                                 args["hidden_size"]),
                                       nn.ReLU(),
                                       nn.Linear(args["hidden_size"],
-                                                3))
+                                                2))
 
     def forward(self, input_ids, attention_mask, token_type_ids, labels, keyword_mask):
 
