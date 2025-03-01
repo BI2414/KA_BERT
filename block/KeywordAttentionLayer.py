@@ -8,8 +8,6 @@ class KeywordAttentionLayer(nn.Module):
         self.attention = nn.MultiheadAttention(hidden_size, attention_heads)
 
     def forward(self, bert_output, keyword_mask):
-        # 确保 keyword_mask 的形状与 bert_output 一致
-        assert bert_output.shape[:2] == keyword_mask.shape, "keyword_mask 形状不匹配"
 
         # 生成基于关键词的查询向量
         query = self.query(bert_output)  # [batch_size, seq_len, hidden_size]

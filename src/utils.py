@@ -70,12 +70,10 @@ def read_SICK_aug(input_file, is_training):
     examples, chunks = [], []
     index = 0
     for i, row in df.iterrows():
-        print(index, row['sentence1'], row['sentence2'], row['label'])
         index += 1
         s1, s2, label = row['sentence1'], row['sentence2'], row['label']
         example = MatchExample(s1, s2, int(label))
         examples.append(example)
-    print("total train items:", index)
     return examples
 
 def read_SICK(input_file, is_training):
@@ -426,7 +424,6 @@ def convert_examples_to_features(args, examples, albert_tokenizer, tokenizer, ma
             return_tensors="pt",
             add_special_tokens=True  # 添加默认的token
         )
-
         # 将 keyword_mask 添加到特征中
         pair_tokens_example["keyword_mask"] = torch.tensor(keyword_mask, dtype=torch.long)
         features_examples.append(pair_tokens_example)

@@ -31,7 +31,7 @@ class NewBert(nn.Module):
                                                  args["hidden_size"]),
                                        nn.ReLU(),
                                        nn.Linear(args["hidden_size"],
-                                                 args["hidden_size"] * 3))
+                                                 args["hidden_size"] * 2))
         config = self.bert_model.config
         self.config = config
         self.dropout = config.hidden_dropout_prob  # 0.1
@@ -45,7 +45,7 @@ class NewBert(nn.Module):
                                                 args["hidden_size"]),
                                       nn.ReLU(),
                                       nn.Linear(args["hidden_size"],
-                                                2))
+                                                3))
 
     def forward(self, input_ids, attention_mask, token_type_ids, labels, keyword_mask):
 
@@ -77,8 +77,6 @@ class NewBert(nn.Module):
 
         # 获取最后一层的隐藏状态
         hiddens = outputs.hidden_states[-1]  # 最后一层隐状态
-        print(f"hiddens shape: {hiddens.shape}")
-        print(f"keyword_mask shape: {keyword_mask.shape}")
 
         if self.args["aug"]:
             # 使用 keyword_mask 增强隐藏层
@@ -102,10 +100,8 @@ class NewBert(nn.Module):
                 noise = uniform_noise
             else:
                 mask = attention_mask.view(-1)
-                # 假设 mask 的形状应该是 [12288]
-                #还要修改有问题
-                # mask = mask[:12288]  # 截断或填充掩码，使其形状与目标张量一致
                 indices = (mask == 1)
+                # 确保掩码的形状与目标张量一致
                 mu_logvar = self.noise_net(hiddens)
                 mu, log_var = torch.chunk(mu_logvar, 2, dim=-1)
                 zs = mu + torch.randn_like(mu) * torch.exp(0.5 * log_var)
@@ -117,9 +113,8 @@ class NewBert(nn.Module):
                 prior_logvar = torch.log(prior_var)
 
                 kl_criterion = GaussianKLLoss()
-                # 确保 mu 的形状与掩码一致
-                h = hiddens.size(-1)
-                _mu = mu.view(-1, h)[indices]
+                h = mu.size(-1)
+                _mu = mu.view(-1, h)[indices]  # 或者使用 mu.reshape(-1, h)[indices]
                 _log_var = log_var.view(-1, h)[indices]
                 _prior_mu = prior_mu.view(-1, h)[indices]
                 _prior_logvar = prior_logvar.view(-1, h)[indices]

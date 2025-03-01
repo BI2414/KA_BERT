@@ -63,10 +63,10 @@ class MyDataset(Dataset):
         feature = self.features[index]
         label = self.labels[index]
         return {
-            "input_ids": feature["input_ids"].squeeze(0),  # 去掉 batch 维度
+            "input_ids": feature["input_ids"].squeeze(0),
             "attention_mask": feature["attention_mask"].squeeze(0),
             "token_type_ids": feature["token_type_ids"].squeeze(0),
-            "keyword_mask": feature["keyword_mask"].squeeze(0),  # 返回 keyword_mask
+            "keyword_mask": feature["keyword_mask"].squeeze(0),
         }, label
 
     def __len__(self):
