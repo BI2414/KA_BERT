@@ -65,14 +65,26 @@ def read_RTE(input_file, is_training):
 
 def read_SICK_aug(input_file, is_training):
     '''二分类'''
-    output = "data/wyh/graduate/AugData/sick_backtrans.tsv"
-    df = pd.read_csv(output, sep = '\t')
+    suffix = ["train.txt", "val.txt"]
+    if args.test:
+        suffix = "test.txt"
+    else:
+        suffix = suffix[0] if is_training else suffix[-1]
+
+    dir_ = os.path.join(input_file, suffix)
+    df = pd.read_csv(dir_, sep = '\t')
     examples, chunks = [], []
-    index = 0
     for i, row in df.iterrows():
-        index += 1
-        s1, s2, label = row['sentence1'], row['sentence2'], row['label']
-        example = MatchExample(s1, s2, int(label))
+        sentence1 = row["sentence_A"]
+        sentence2 = row["sentence_B"]
+        label = row["entailment_label"]
+        if label == "ENTAILMENT":
+            label = 2
+        elif label == "NEUTRAL":
+            label = 1
+        else:
+            label = 0
+        example = MatchExample(sentence1, sentence2, label)
         examples.append(example)
     return examples
 
@@ -354,6 +366,30 @@ def read_PAWS(input_file, is_training):
 
     return examples
 
+def read_SciTail(input_file, is_training):
+    '''二分类'''
+    suffix = ["scitail_1.0_train.tsv", "scitail_1.0_dev.tsv"]
+    if args.test:
+        suffix = "scitail_1.0_test.tsv"
+    else:suffix = suffix[0] if is_training else suffix[-1]
+    dir_ = os.path.join(input_file, suffix)
+    df = pd.read_csv(dir_, sep = '\t', header=0, quoting=3)
+
+    examples, chunks = [], []
+    # 参考 https://blog.csdn.net/sinat_29675423/article/details/87972498
+    for index, row in df.iterrows():
+        if args.test == 1:
+            label = 0
+        else:
+            if isinstance(row['label'], int):label = row["label"]
+            else:
+                label = 1 if row["label"] == "entails" else 0
+        example = MatchExample(row['sentence1'], row['sentence2'], label)
+        # print(index, PTM_keyword_extractor_yake(row['sentence1']))
+        #print(index)
+        examples.append(example)
+    return examples
+
 def read_examples(input_file, name, is_training):
     """Read a json file into a list of Example."""
     
@@ -375,10 +411,13 @@ def read_examples(input_file, name, is_training):
     elif name == "STS-B":
         return read_STSB(input_file, is_training)
     elif name == "SICK":
-        if is_training:
-            return read_SICK_aug(input_file, is_training)
-        else:
-            return read_SICK(input_file, is_training)
+        return read_SICK_aug(input_file, is_training)
+        # if is_training:
+        #     return read_SICK_aug(input_file, is_training)
+        # else:
+        #     return read_SICK(input_file, is_training)
+    elif name == "SciTail":
+        return read_SciTail(input_file, is_training)
     elif name == "BQ":
         return read_BQ(input_file, is_training)
     elif name == "LCQMC":

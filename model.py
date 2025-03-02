@@ -61,19 +61,11 @@ class NewBert(nn.Module):
 
             # 假设选择每个位置中注意力权重最高的token作为关键词
             keyword_mask = (attention_weights.mean(dim=1) > 0.5).any(dim=1)  # [batch, seq_len]
+            # keyword_mask = (attention_weights.mean(dim=1) > 0.3).any(dim=1)  # 降低阈值
         # 获取 BERT 输出
         input_ids = input_ids.view(-1, input_ids.size(-1))
         attention_mask = attention_mask.view(-1, attention_mask.size(-1))
         token_type_ids = token_type_ids.view(-1, token_type_ids.size(-1))
-
-        # 第二次调用 BERT 获取隐藏状态
-        outputs = self.bert_model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            labels=labels,
-            output_hidden_states=True  # 必须显式指定
-        )
 
         # 获取最后一层的隐藏状态
         hiddens = outputs.hidden_states[-1]  # 最后一层隐状态
@@ -156,15 +148,14 @@ class NewBert(nn.Module):
                 cls_noise = last_noise[:, :1, :].squeeze()  # 获取噪声向量的CLS
                 cls = last[:, :1, :].squeeze()  # 获取原始向量的CLS
                 cls_total = torch.cat((cls_noise, cls), dim=1)
-                cls_total = torch.mean(cls_total, dim=0).unsqueeze(dim=0)  # 合并并计算平均
+                # cls_total = torch.mean(cls_total, dim=0).unsqueeze(dim=0)  # 合并并计算平均
                 # 将CLS通过Gate网络
                 res = self.Gate(cls_total)
-                temperature = 0.5
+                # temperature = 0.5
+                temperature = 1
                 Gates = F.softmax(res / temperature, dim=-1).squeeze()
                 # Gates = F.softmax(res, dim=-1).squeeze()  # Gate 权重，通过softmax标准化
                 # Adapter 动态调整损失
-                print("CLS Total:", cls_total.mean().item())
-                print("Gates:", Gates)
                 loss = noise_loss * Gates[0] + nll * Gates[1]  # 动态调整损失
                 # loss = nll + 0.001 * noise_loss
             else:

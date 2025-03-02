@@ -25,7 +25,8 @@ from src.config import get_argparse
 from src.metrics import flat_accuracy, flat_f1
 from model import NewBert
 from logger import logger
-from src.utils import convert_examples_to_features, read_examples
+from src.utils import read_examples
+from src.utils import convert_examples_to_features
 # from CrossModel import Cross_Model # 导入cross_attention模型
 from nni.utils import merge_parameter
 args = get_argparse().parse_args()
@@ -141,7 +142,18 @@ def test(args, model, device, tokenizer, albert_tokenizer):
     # 处理部分任务的二分类
     if args["name"] in ["RTE", "QNLI"]:
         result = ["entailment" if tag else "not_entailment" for tag in result]
-
+    if args["name"] in ["SciTail"]:
+        result = ["entails" if tag else "neutral" for tag in result]
+    # if "SICK" in args["name"]:
+    #     result_ = []
+    #     for tag in result:
+    #         if tag == 2:
+    #             result_.append("ENTAILMENT")
+    #         elif tag == 1:
+    #             result_.append("NEUTRAL")
+    #         else:
+    #             result_.append("CONTRADICTION")
+    #     result = result_
     # 处理MNLI三分类任务
     if "MNLI" in args["name"]:
         result_ = []
