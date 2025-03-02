@@ -6,7 +6,7 @@ class KeywordAttentionLayer(nn.Module):
         super().__init__()
         self.query = nn.Linear(hidden_size, hidden_size)
         self.attention = nn.MultiheadAttention(hidden_size, attention_heads)
-
+    
     def forward(self, bert_output, keyword_mask):
 
         # 生成基于关键词的查询向量

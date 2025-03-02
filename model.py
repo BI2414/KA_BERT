@@ -47,6 +47,25 @@ class NewBert(nn.Module):
                                       nn.Linear(args["hidden_size"],
                                                 2))
 
+    def generate_keyword_mask(self, attention_weights, topk=3):
+        """动态生成关键词掩码"""
+        # attention_weights形状: [batch_size, num_heads, seq_len, seq_len]
+        batch_size, num_heads, seq_len, _ = attention_weights.shape
+
+        # 计算每个token被关注的重要性（跨头平均）
+        importance = attention_weights.mean(dim=1)  # [batch, seq, seq]
+        importance = importance.mean(dim=-1)  # [batch, seq] (作为被关注度)
+
+        # 选取每个样本的前topk个重要位置
+        _, topk_indices = importance.topk(topk, dim=-1)  # [batch, topk]
+
+        # 生成动态掩码
+        keyword_mask = torch.zeros(batch_size, seq_len,
+                                   dtype=torch.bool, device=attention_weights.device)
+        for b in range(batch_size):
+            keyword_mask[b, topk_indices[b]] = True
+        return keyword_mask
+
     def forward(self, input_ids, attention_mask, token_type_ids, labels, keyword_mask):
 
         # 第一次调用 BERT 获取注意力权重和隐藏状态
@@ -60,8 +79,7 @@ class NewBert(nn.Module):
             attention_weights = outputs.attentions[-1]  # 取最后一层注意力权重
 
             # 假设选择每个位置中注意力权重最高的token作为关键词
-            keyword_mask = (attention_weights.mean(dim=1) > 0.5).any(dim=1)  # [batch, seq_len]
-            # keyword_mask = (attention_weights.mean(dim=1) > 0.3).any(dim=1)  # 降低阈值
+            keyword_mask = self.generate_keyword_mask(attention_weights, topk=8)  # 可调节topk值
         # 获取 BERT 输出
         input_ids = input_ids.view(-1, input_ids.size(-1))
         attention_mask = attention_mask.view(-1, attention_mask.size(-1))
