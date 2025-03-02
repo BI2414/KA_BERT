@@ -49,7 +49,7 @@ def get_argparse():
     
     parser.add_argument('--test', type=int, default=0, help="是否为测试状态, 1表示测试，0表示训练或验证")
     
-    parser.add_argument('--read_data', type=int, default=0, help="0表示读取pickle")
+    parser.add_argument('--read_data', type=int, default=1, help="0表示读取pickle")
     
     parser.add_argument('--gate', type=int, default=1, help="0表示不使用gate网络")
     
@@ -79,7 +79,7 @@ def get_argparse():
     parser.add_argument('--output_dim', type=int, default=768, help = "最后进行cosin相似度计算的embeding纬度")
 
     parser.add_argument('--max_len', type=int, default=128, help = "pair长度")
-    parser.add_argument('--k_keywords', type=int, default=3, help = "关键词长度")
+    parser.add_argument('--k_keywords', type=int, default=5, help = "关键词长度")
 
     # 文件路径
 

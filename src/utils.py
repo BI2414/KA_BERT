@@ -65,7 +65,7 @@ def read_RTE(input_file, is_training):
 
 def read_SICK_aug(input_file, is_training):
     '''二分类'''
-    suffix = ["train.txt", "val.txt"]
+    suffix = ["train.txt", "test.txt"]
     if args.test:
         suffix = "test.txt"
     else:

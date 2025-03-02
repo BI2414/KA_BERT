@@ -148,11 +148,10 @@ class NewBert(nn.Module):
                 cls_noise = last_noise[:, :1, :].squeeze()  # 获取噪声向量的CLS
                 cls = last[:, :1, :].squeeze()  # 获取原始向量的CLS
                 cls_total = torch.cat((cls_noise, cls), dim=1)
-                # cls_total = torch.mean(cls_total, dim=0).unsqueeze(dim=0)  # 合并并计算平均
+                cls_total = torch.mean(cls_total, dim=0).unsqueeze(dim=0)  # 合并并计算平均
                 # 将CLS通过Gate网络
                 res = self.Gate(cls_total)
-                # temperature = 0.5
-                temperature = 1
+                temperature = 0.5
                 Gates = F.softmax(res / temperature, dim=-1).squeeze()
                 # Gates = F.softmax(res, dim=-1).squeeze()  # Gate 权重，通过softmax标准化
                 # Adapter 动态调整损失
