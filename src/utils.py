@@ -425,6 +425,13 @@ def read_examples(input_file, name, is_training):
     elif name == "PAWS":
         return read_PAWS(input_file, is_training)
     
+def get_tfidf_keywords(text, vectorizer, k):
+    tfidf_matrix = vectorizer.transform([text])
+    tfidf_scores = tfidf_matrix.toarray().flatten()
+    word_indices = np.argsort(tfidf_scores)[-k:]  # 选择权重最高的 K 个词
+    feature_names = vectorizer.get_feature_names_out()
+    keywords = set(feature_names[i] for i in word_indices)
+    return keywords
 
 def convert_examples_to_features(args, examples, albert_tokenizer, tokenizer, max_len, is_training):
     features_examples, labels = [], []
@@ -438,9 +445,8 @@ def convert_examples_to_features(args, examples, albert_tokenizer, tokenizer, ma
         # 对每个样本生成 keyword_mask
         text = texts[idx]
         tokens = tokenizer.tokenize(text)
-        tfidf_scores = tfidf_matrix[idx].toarray().flatten()
-        topk_indices = np.argsort(tfidf_scores)[-args["k_keywords"]:]  # 选择 TF-IDF 最高的前 k 个词
-        keyword_mask = [1 if i in topk_indices else 0 for i in range(len(tokens))]
+        keywords = get_tfidf_keywords(text, vectorizer, args["k_keywords"])  # 获取 TF-IDF 关键词
+        keyword_mask = [1 if token in keywords else 0 for token in tokens]
 
         # 将 keyword_mask 填充到最大长度
         if len(keyword_mask) < max_len:
