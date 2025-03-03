@@ -93,6 +93,7 @@ def save_model(args, model):
         os.makedirs(args["model_dir"])
     ckpt_file = os.path.join(args["model_dir"], "bert_base_{}.pt".format(args["name"]))
     torch.save(model, ckpt_file)
+
 def test(args, model, device, tokenizer, albert_tokenizer):
     if args["read_data"]:
         examples = read_examples(args["dev_file"], args["name"],is_training=False)
@@ -204,7 +205,6 @@ def evaluate(args, model, device, tokenizer, albert_tokenizer):
     result = []
     for i, (inputs, labels) in enumerate(eval_dataloader):
         with torch.no_grad():
-            # 在验证循环中调用
             inputs_sentence = inputs["input_ids"].to(device)
             attention_mask = inputs["attention_mask"].to(device)
             token_type_ids = inputs["token_type_ids"].to(device)
