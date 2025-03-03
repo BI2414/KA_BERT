@@ -187,23 +187,10 @@ class NewBert(nn.Module):
                 temperature =0.5
                 Gates = F.softmax(res / temperature, dim=-1)
 
-                # 获取样本级损失
+                # 修改后应获取样本级损失
                 noise_logits = noise_outputs.logits
-                nll_logits = outputs.logits
-
-                noise_losses = F.cross_entropy(
-                    noise_logits.view(-1, self.args["n_class"]),
-                    labels.view(-1),
-                    reduction='none'
-                ).view_as(labels)  # [batch]
-
-                nll_losses = F.cross_entropy(
-                    nll_logits.view(-1, self.args["n_class"]),
-                    labels.view(-1),
-                    reduction='none'
-                ).view_as(labels)  # [batch]
-
-                # 动态加权
+                noise_losses = F.cross_entropy(noise_logits, labels, reduction='none')  # [batch]
+                nll_losses = F.cross_entropy(outputs.logits, labels, reduction='none')  # [batch]
                 loss = (noise_losses * Gates[:, 0] + nll_losses * Gates[:, 1]).mean()
                 # loss = nll + 0.001 * noise_loss
             else:
