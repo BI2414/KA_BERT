@@ -21,6 +21,7 @@ class BQPairwiseDataset(Dataset):
     def _load_data(self, path, mode):
         """带标题行处理的加载方法"""
         query_dict = {}
+        line_count = 0
         file_path = os.path.join(path, f"{mode}.tsv")
 
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -33,6 +34,8 @@ class BQPairwiseDataset(Dataset):
                 f.seek(0)
 
             for line_num, line in enumerate(f, 1):
+                # if  line_count >= 2000:
+                #     break  # 达到最大行数后停止读取
                 line = line.strip()
                 if not line:
                     continue
@@ -53,6 +56,8 @@ class BQPairwiseDataset(Dataset):
                 if query not in query_dict:
                     query_dict[query] = {'pos': [], 'neg': []}
                 query_dict[query]['pos'].append(candidate) if label == 1 else query_dict[query]['neg'].append(candidate)
+
+                line_count += 1  # 增加行数计数
 
         # 过滤有效数据并转换格式
         return [

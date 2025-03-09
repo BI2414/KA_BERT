@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from click.core import F
+import torch.nn.functional as F
 from transformers import BertModel, BertPreTrainedModel
 from block.KeywordAttentionLayer import KeywordAttentionLayer  # 假设已实现
 
@@ -116,31 +116,45 @@ class EnhancedDualBERT(BertPreTrainedModel):
         return self.query_proj(hiddens[:, 0])  # [batch, embed_dim]
 
     def encode_doc(self, input_ids, attention_mask):
-        """文档编码流程（与Query对称但独立）"""
+        # 处理三维输入 (batch_size, num_candidates, seq_len)
+        batch_size, num_cand, seq_len = input_ids.size()
+
+        # 展平维度 (batch_size*num_cand, seq_len)
+        flat_input_ids = input_ids.view(-1, seq_len)
+        flat_attention_mask = attention_mask.view(-1, seq_len)
+
+        # 通过BERT模型
         outputs = self.doc_bert(
-            input_ids=input_ids,
-            attention_mask=attention_mask
+            input_ids=flat_input_ids,
+            attention_mask=flat_attention_mask,
+            return_dict=True
         )
-        hiddens = outputs.last_hidden_state
 
-        hiddens = self._apply_keyword_attention(hiddens, attention_mask)
-        hiddens = self._apply_noise(hiddens)
+        # 获取池化输出并恢复维度
+        pooled_output = outputs.pooler_output
 
-        return self.doc_proj(hiddens[:, 0])
+        # 添加文档投影降维
+        pooled_output = self.doc_proj(pooled_output)  # [batch_size*num_cand, embed_dim]
+
+        # 恢复三维结构
+        return pooled_output.view(batch_size, num_cand, -1)  # [batch, num_cand, embed_dim]
 
     def forward(self, query_inputs, doc_inputs):
-        """
-        训练前向传播
-        :param query_inputs: {input_ids: [batch, seq_len], attention_mask: [batch, seq_len]}
-        :param doc_inputs: 同query_inputs结构
-        :return: 相似度矩阵 [batch, batch]
-        """
-        # 编码Query和Doc
         q_embeds = self.encode_query(**query_inputs)  # [batch, dim]
-        d_embeds = self.encode_doc(**doc_inputs)  # [batch, dim]
+        d_embeds = self.encode_doc(**doc_inputs)  # [batch, num_cand, dim]
 
-        # 计算相似度矩阵
-        return torch.matmul(q_embeds, d_embeds.T)  # [batch, batch]
+        # 归一化处理
+        q_embeds = F.normalize(q_embeds, p=2, dim=-1)
+        d_embeds = F.normalize(d_embeds, p=2, dim=-1)
+
+        # 计算余弦相似度
+        scores = torch.matmul(q_embeds.unsqueeze(1), d_embeds.transpose(1, 2)).squeeze(1)
+
+        # 在 forward 方法中添加调试信息
+        print(f"Query embeds shape: {q_embeds.shape}")  # 应输出 [batch, 128]
+        print(f"Doc embeds shape: {d_embeds.shape}")  # 应输出 [batch, num_cand, 128]
+        print(f"Scores shape: {scores.shape}")  # 应输出 [batch, num_cand]
+        return scores  # [batch, num_cand]
 
     def compute_loss(self, scores, labels, mu=None, logvar=None):
         """

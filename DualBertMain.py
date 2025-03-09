@@ -250,7 +250,7 @@ if __name__ == "__main__":
     # 数据加载
     train_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='train')
     val_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='dev')
-    test_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='test')
+    # test_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='test')
 
     train_loader = DataLoader(
         train_dataset,
