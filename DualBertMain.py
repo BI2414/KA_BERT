@@ -116,10 +116,11 @@ def train(model, train_loader, val_loader, args):
             labels = batch['labels'].to(args.device)
 
             # 前向传播
-            scores = model(query_inputs, doc_inputs)
+            scores, mu, logvar = model(query_inputs, doc_inputs)  # 接收mu和logvar
 
             # 计算损失
-            loss = model.compute_loss(scores, labels)
+            loss = model.compute_loss(scores, labels, mu, logvar)  # 传递参数
+            loss.backward()
 
             # 反向传播
             optimizer.zero_grad()
@@ -235,6 +236,9 @@ if __name__ == "__main__":
         share_low_layers = 6
         use_gate = True
         kl_weight = 0.1
+        adapter_size = 64  # Adapter的中间维度
+        use_cross_attn = True  # 启用交叉注意力
+        contrastive_margin = 0.2  # 对比损失边界
 
 
     args = Args()
