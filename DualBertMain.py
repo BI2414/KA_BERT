@@ -165,7 +165,7 @@ def evaluate(model, data_loader, args, top_k=(1, 5, 10)):
             }
 
             # 计算相似度
-            scores = model(query_inputs, doc_inputs).cpu().numpy()
+            scores = model(query_inputs, doc_inputs)[0].cpu().numpy()  # <-- 关键修改点
             labels = batch['labels'].cpu().numpy()
 
             all_scores.append(scores)
