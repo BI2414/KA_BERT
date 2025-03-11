@@ -18,9 +18,9 @@ class Adapter(nn.Module):
 
 # 添加交叉注意力层
 class CrossAttention(nn.Module):
-    def __init__(self, hidden_size):
+    def __init__(self, embed_dim):
         super().__init__()
-        self.attn = MultiheadAttention(hidden_size, num_heads=4)
+        self.attn = MultiheadAttention(embed_dim, num_heads=4)  # ✅ 这里也用 embed_dim
 
     def forward(self, query, key_value):
         query = query.permute(1, 0, 2)  # [seq_len, batch, hidden]
@@ -93,7 +93,7 @@ class EnhancedDualBERT(BertPreTrainedModel):
             num_heads=4,  # 可调整头数
             dropout=0.1
         ) if args.use_gate else None
-        self.cross_attn = CrossAttention(config.hidden_size)
+        self.cross_attn = CrossAttention(args.embed_dim)  # ✅ 让 CrossAttention 适应降维后的维度
 
     def _add_adapters(self, bert_model, adapter_size):
         """为BERT模型的每一层添加Adapter模块"""
@@ -153,8 +153,8 @@ class EnhancedDualBERT(BertPreTrainedModel):
         outputs = self.query_bert(input_ids=input_ids, attention_mask=attention_mask)
         hiddens = outputs.last_hidden_state
         attention_mask = attention_mask.to(dtype=torch.float)  # ✅ 解决错误
-        print("Query BERT hidden size:", self.query_bert.config.hidden_size)
-        print("Doc BERT hidden size:", self.doc_bert.config.hidden_size)
+        # print("Query BERT hidden size:", self.query_bert.config.hidden_size)
+        # print("Doc BERT hidden size:", self.doc_bert.config.hidden_size)
         # 遍历每一层并应用Adapter
         for layer in self.query_bert.encoder.layer:
             # 原始BERT层的前向传播
@@ -192,15 +192,25 @@ class EnhancedDualBERT(BertPreTrainedModel):
         return pooled_output.view(batch_size, num_cand, -1)  # [batch, num_cand, embed_dim]
 
     def forward(self, query_inputs, doc_inputs):
-        q_embeds = self.encode_query(**query_inputs)
-        d_embeds = self.encode_doc(**doc_inputs)
-        print(q_embeds.shape, d_embeds.shape)  # Debug 输出
+        query_inputs["attention_mask"] = query_inputs["attention_mask"].to(dtype=torch.float)
+        doc_inputs["attention_mask"] = doc_inputs["attention_mask"].to(dtype=torch.float)
 
-        # 交叉注意力增强
-        cross_embeds = self.cross_attn(q_embeds.unsqueeze(1), d_embeds)
-        scores = torch.matmul(q_embeds.unsqueeze(1), cross_embeds.transpose(1, 2)).squeeze(1)
-        return scores
+        q_embeds, mu, logvar = self.encode_query(**query_inputs)  # [batch, embed_dim]
+        d_embeds = self.encode_doc(**doc_inputs)  # [batch, num_cand, embed_dim]
 
+        # 扩展查询嵌入以匹配文档候选数量
+        q_expanded = q_embeds.unsqueeze(1).expand(-1, d_embeds.size(1), -1)  # [batch, num_cand, embed_dim]
+
+        # 应用交叉注意力
+        cross_embeds = self.cross_attn(q_expanded, d_embeds)  # [batch, num_cand, embed_dim]
+
+        # 计算相似度得分
+        scores = torch.matmul(q_embeds.unsqueeze(1),  # [batch, 1, embed_dim]
+                              cross_embeds.transpose(1, 2)  # [batch, embed_dim, num_cand]
+                              ).squeeze(1)  # [batch, num_cand]
+
+        # print(f"scores shape: {scores.shape}")
+        return scores, mu, logvar
 
     def compute_loss(self, scores, labels, mu, logvar):
         contrast_loss = F.cross_entropy(scores, labels)
