@@ -93,16 +93,14 @@ def collate_fn(batch, tokenizer, max_len=128):
     }
 
 
-
 def train(model, train_loader, val_loader, args):
     """训练函数"""
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr,eps=args["adam_epsilon"],weight_decay=args["weight_decay"])
     best_score = 0
 
     for epoch in range(args.epochs):
         model.train()
         epoch_loss = 0
-        torch.cuda.empty_cache()
 
         # 训练阶段
         for batch in tqdm(train_loader, desc=f"Epoch {epoch + 1}"):
@@ -122,6 +120,7 @@ def train(model, train_loader, val_loader, args):
 
             # 计算损失
             loss = model.compute_loss(scores, labels, mu, logvar)  # 传递参数
+            loss.backward()
 
             # 反向传播
             optimizer.zero_grad()
@@ -144,7 +143,6 @@ def train(model, train_loader, val_loader, args):
         print(f"Train Loss: {epoch_loss / len(train_loader):.4f}")
         print(f"Val Recall@10: {val_metrics['recall@10']:.4f}")
         print(f"Val MRR@10: {val_metrics['mrr@10']:.4f}\n")
-    torch.cuda.empty_cache()
 
 
 def evaluate(model, data_loader, args, top_k=(1, 5, 10)):
@@ -165,7 +163,7 @@ def evaluate(model, data_loader, args, top_k=(1, 5, 10)):
             }
 
             # 计算相似度
-            scores = model(query_inputs, doc_inputs)[0].cpu().numpy()  # <-- 关键修改点
+            scores = model(query_inputs, doc_inputs).cpu().numpy()
             labels = batch['labels'].cpu().numpy()
 
             all_scores.append(scores)
@@ -228,7 +226,7 @@ if __name__ == "__main__":
         model_name = "data/wjh/graduate/data/bert-base-chinese"
         save_dir = "data/wjh/graduate/data/save"
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        batch_size = 16
+        batch_size = 32
         num_pos = 2
         num_neg = 6
         max_len = 128
