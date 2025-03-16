@@ -14,13 +14,13 @@ class Adapter(nn.Module):
         self.activation = nn.GELU()
 
     def forward(self, x):
-        return x + self.up_proj(self.activation(self.down_proj(x)))  # ✅ 确保 residual 连接
+        return x + self.up_proj(self.activation(self.down_proj(x)))  # ✅ 确保 Residual 连接
 
 # 添加交叉注意力层
 class CrossAttention(nn.Module):
-    def __init__(self, embed_dim):
+    def __init__(self, hidden_size):
         super().__init__()
-        self.attn = MultiheadAttention(embed_dim, num_heads=4)  # ✅ 这里也用 embed_dim
+        self.attn = MultiheadAttention(hidden_size, num_heads=4)
 
     def forward(self, query, key_value):
         query = query.permute(1, 0, 2)  # [seq_len, batch, hidden]
@@ -58,7 +58,6 @@ class EnhancedDualBERT(BertPreTrainedModel):
         # 添加Adapter
         self.query_bert = self._add_adapters(self.query_bert, args.adapter_size)
         self.doc_bert = self._add_adapters(self.doc_bert, args.adapter_size)
-
         # --------------------------
         # STAMP改进模块
         # --------------------------
@@ -93,7 +92,7 @@ class EnhancedDualBERT(BertPreTrainedModel):
             num_heads=4,  # 可调整头数
             dropout=0.1
         ) if args.use_gate else None
-        self.cross_attn = CrossAttention(args.embed_dim)  # ✅ 让 CrossAttention 适应降维后的维度
+        self.cross_attn = CrossAttention(config.hidden_size)
 
     def _add_adapters(self, bert_model, adapter_size):
         """为BERT模型的每一层添加Adapter模块"""
@@ -153,12 +152,13 @@ class EnhancedDualBERT(BertPreTrainedModel):
         outputs = self.query_bert(input_ids=input_ids, attention_mask=attention_mask)
         hiddens = outputs.last_hidden_state
         attention_mask = attention_mask.to(dtype=torch.float)  # ✅ 解决错误
-        # print("Query BERT hidden size:", self.query_bert.config.hidden_size)
-        # print("Doc BERT hidden size:", self.doc_bert.config.hidden_size)
+        print("Query BERT hidden size:", self.query_bert.config.hidden_size)
+        print("Doc BERT hidden size:", self.doc_bert.config.hidden_size)
         # 遍历每一层并应用Adapter
         for layer in self.query_bert.encoder.layer:
             # 原始BERT层的前向传播
-            hiddens = layer.adapter(hiddens)  # ✅ 确保 Adapter 不改变 hidden_size
+            layer_outputs = layer(hiddens, attention_mask)
+            hiddens = layer_outputs[0]  # 取隐藏状态
 
             # 应用Adapter并残差连接
             hiddens = layer.adapter(hiddens)
@@ -195,22 +195,19 @@ class EnhancedDualBERT(BertPreTrainedModel):
         query_inputs["attention_mask"] = query_inputs["attention_mask"].to(dtype=torch.float)
         doc_inputs["attention_mask"] = doc_inputs["attention_mask"].to(dtype=torch.float)
 
-        q_embeds, mu, logvar = self.encode_query(**query_inputs)  # [batch, embed_dim]
-        d_embeds = self.encode_doc(**doc_inputs)  # [batch, num_cand, embed_dim]
+        q_embeds, mu, logvar = self.encode_query(**query_inputs)
+        d_embeds = self.encode_doc(**doc_inputs)
 
-        # 扩展查询嵌入以匹配文档候选数量
-        q_expanded = q_embeds.unsqueeze(1).expand(-1, d_embeds.size(1), -1)  # [batch, num_cand, embed_dim]
+        # 确保 q_embeds 和 d_embeds 维度匹配
+        q_embeds = q_embeds.unsqueeze(1)  # 变成 (batch, 1, hidden_size)
+        d_embeds = self.doc_proj(d_embeds)  # 让它们投影到相同的 hidden_size
 
-        # 应用交叉注意力
-        cross_embeds = self.cross_attn(q_expanded, d_embeds)  # [batch, num_cand, embed_dim]
+        cross_embeds = self.cross_attn(q_embeds, d_embeds)
+        cross_embeds = cross_embeds.squeeze(1)
 
-        # 计算相似度得分
-        scores = torch.matmul(q_embeds.unsqueeze(1),  # [batch, 1, embed_dim]
-                              cross_embeds.transpose(1, 2)  # [batch, embed_dim, num_cand]
-                              ).squeeze(1)  # [batch, num_cand]
-
-        # print(f"scores shape: {scores.shape}")
+        scores = (q_embeds.squeeze(1) * cross_embeds).sum(dim=-1)
         return scores, mu, logvar
+
 
     def compute_loss(self, scores, labels, mu, logvar):
         contrast_loss = F.cross_entropy(scores, labels)

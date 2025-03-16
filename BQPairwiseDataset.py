@@ -11,7 +11,7 @@ class BQPairwiseDataset(Dataset):
     """支持一对多训练的BQ数据集加载器"""
 
     def __init__(self, data_path, tokenizer, mode='train',
-                 max_len=128, num_pos=2, num_neg=6):
+                 max_len=128, num_pos=10, num_neg=10):
         self.tokenizer = tokenizer
         self.max_len = max_len
         self.num_pos = num_pos
@@ -76,13 +76,23 @@ class BQPairwiseDataset(Dataset):
         positives = item['pos']
         negatives = item['neg']
 
-        # 强制采样固定数量（允许重复）
-        pos_samples = random.choices(positives, k=self.num_pos) if positives else [""] * self.num_pos
-        neg_samples = random.choices(negatives, k=self.num_neg) if negatives else [""] * self.num_neg
+        # 动态计算最小可用样本数
+        min_count = min(len(positives), len(negatives))
+        if min_count == 0:  # 理论上不会发生（加载时已过滤）
+            return self.__getitem__(random.randint(0, len(self.data) - 1))  # 随机换一个样本
 
-        # 合并候选
+        # 强制1:1比例
+        num_pairs = min(self.num_pos, self.num_neg, min_count)
+
+        # 无重复采样（如果数据不足则重复）
+        pos_samples = random.sample(positives, num_pairs) if len(positives) >= num_pairs \
+            else random.choices(positives, k=num_pairs)
+        neg_samples = random.sample(negatives, num_pairs) if len(negatives) >= num_pairs \
+            else random.choices(negatives, k=num_pairs)
+
+        # 合并候选（1:1比例）
         candidates = pos_samples + neg_samples
-        labels = [1] * self.num_pos + [0] * self.num_neg
+        labels = [1] * num_pairs + [0] * num_pairs
 
         return {
             'query': query,
