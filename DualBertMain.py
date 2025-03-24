@@ -145,7 +145,7 @@ def train(model, train_loader, val_loader, args):
         print(f"Val MRR@10: {val_metrics['mrr@10']:.4f}\n")
 
 
-def evaluate(model, data_loader, args, top_k=(1, 5, 10)):
+def evaluate(model, data_loader, args, top_k=(1, 5, 1)):
     """评估函数"""
     model.eval()
     all_scores = []
@@ -184,25 +184,24 @@ def evaluate(model, data_loader, args, top_k=(1, 5, 10)):
 
 
 def calculate_metrics(scores, labels, top_k):
-    """计算Recall@K和MRR@K"""
+    """计算Recall@K和MRR@K，假设每个query有1个正样本和N个负样本"""
     recall = 0
     mrr = 0
     for i in range(scores.shape[0]):
-        # 获取每个query的排序结果
         sorted_indices = np.argsort(-scores[i])
-        relevant = np.where(labels[i][sorted_indices] == 1)[0]
-
-        # Recall@K
-        if len(relevant) > 0 and relevant[0] < top_k:
-            recall += 1
-
-        # MRR@K
-        if len(relevant) > 0:
-            first_relevant = relevant[0] + 1  # 位置从1开始计数
-            mrr += 1 / first_relevant if first_relevant <= top_k else 0
-
-    recall = recall / scores.shape[0]
-    mrr = mrr / scores.shape[0]
+        # 假设正样本标签为1的位置在labels中
+        relevant_pos = np.where(labels[i] == 1)[0]
+        # 计算第一个正样本的位置
+        if len(relevant_pos) > 0:
+            first_rank = np.where(sorted_indices == relevant_pos[0])[0][0] + 1
+            # Recall@K
+            if first_rank <= top_k:
+                recall += 1
+            # MRR@K
+            if first_rank <= top_k:
+                mrr += 1 / first_rank
+    recall /= scores.shape[0]
+    mrr /= scores.shape[0]
     return recall, mrr
 
 
@@ -220,6 +219,7 @@ def test(model, test_loader, args):
 
 
 if __name__ == "__main__":
+    print("开始")
     # 参数配置
     class Args:
         data_path = "data/wjh/graduate/AugData/BQ"
@@ -227,8 +227,9 @@ if __name__ == "__main__":
         save_dir = "data/wjh/graduate/data/save"
         device = "cuda" if torch.cuda.is_available() else "cpu"
         batch_size = 32
-        num_pos = 2
-        num_neg = 6
+        num_pos = 3  # 可增加到8-10观察效果
+        num_neg = 8  # 可增加到15-20观察效果
+        augment_prob = 0.3  # 增强概率可调范围0.2-0.5
         max_len = 128
         lr = 2e-5
         epochs = 5
@@ -250,23 +251,48 @@ if __name__ == "__main__":
         config=BertConfig.from_pretrained(args.model_name),
         args=args
     ).to(args.device)
-
+    print("数据加载")
     # 数据加载
-    train_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='train')
-    val_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='dev')
+    train_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='train',max_len=128 , num_neg=args.num_pos, num_pos=args.num_pos)
+    # 查看数据统计
+    print("\n=== 数据集统计 ===")
+    print(f"总query数: {len(train_dataset)}")
+    print(f"平均正样本/query: {np.mean([len(d['pos']) for d in train_dataset.data]):.1f}")
+    print(f"平均负样本/query: {np.mean([len(d['neg']) for d in train_dataset.data]):.1f}")
+
+    # 检查第一个样本
+    sample = train_dataset[0]
+    print("\n=== 样本示例 ===")
+    print(f"Query: {sample['query']}")
+    print("\nSample candidates:", sample['candidates'])
+    print("Augmented positives:", [c for c, l in zip(sample['candidates'], sample['labels']) if l == 1])
+
+    val_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='dev',max_len=128 , num_neg=100, num_pos=1)
+    print("\n=== 数据集统计 ===")
+    print(f"总query数: {len(val_dataset)}")
+    print(f"平均正样本/query: {np.mean([len(d['pos']) for d in val_dataset.data]):.1f}")
+    print(f"平均负样本/query: {np.mean([len(d['neg']) for d in val_dataset.data]):.1f}")
+
+    # 检查第一个样本
+    sample = val_dataset[0]
+    print("\n=== 样本示例 ===")
+    print(f"Query: {sample['query']}")
+    print("\nSample candidates:", sample['candidates'])
+    print("Augmented positives:", [c for c, l in zip(sample['candidates'], sample['labels']) if l == 1])
+
     # test_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='test')
 
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=args.batch_size,
-        collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
-    )
+    # train_loader = DataLoader(
+    #     train_dataset,
+    #     batch_size=args.batch_size,
+    #     shuffle=True,
+    #     collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
+    # )
+    # val_loader = DataLoader(
+    #     val_dataset,
+    #     batch_size=args.batch_size,
+    #     collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
+    # )
     # test_loader = DataLoader(
     #     test_dataset,
     #     batch_size=args.batch_size,
@@ -274,8 +300,8 @@ if __name__ == "__main__":
     # )
 
     # 训练流程
-    train(model, train_loader, val_loader, args)
+    # train(model, train_loader, val_loader, args)
 
     # 最终测试
-    model.load_state_dict(torch.load(f"{args.save_dir}/best_model.pt"))
+    # model.load_state_dict(torch.load(f"{args.save_dir}/best_model.pt"))
     # test(model, test_loader, args)
