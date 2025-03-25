@@ -149,7 +149,7 @@ class BQPairwiseDataset(Dataset):
         else:
             for q, v in query_dict.items():
                 # 放宽过滤条件：只要求至少有1个正样本和负样本
-                if len(v['pos']) >= self.num_pos and len(v['neg']) >= self.num_neg:
+                if len(v['pos']) >= self.num_pos/2 and len(v['neg']) >= 1:
                     valid_data.append({'query': q, 'pos': v['pos'], 'neg': v['neg']})
         print(f"有效query数量: {len(valid_data)}")
         return valid_data
@@ -188,8 +188,17 @@ class BQPairwiseDataset(Dataset):
         else:
             neg_samples = all_negs
 
+
+        # 强制采样固定数量（允许重复）
+        pos_samples = random.choices(positives, k=self.num_pos) if pos_samples else [""] * self.num_pos
+        neg_samples = random.choices(negatives, k=self.num_neg) if neg_samples else [""] * self.num_neg
+
+        # 合并候选
+        candidates = pos_samples + neg_samples
+        labels = [1] * self.num_pos + [0] * self.num_neg
+
         return {
             'query': query,
-            'candidates': pos_samples + neg_samples,
-            'labels': [1] * len(pos_samples) + [0] * len(neg_samples)
+            'candidates': candidates,
+            'labels': labels
         }
