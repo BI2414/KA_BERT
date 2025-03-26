@@ -81,7 +81,7 @@ class BQPairwiseDataset(Dataset):
     """支持一对多训练的BQ数据集加载器"""
 
     def __init__(self, data_path, tokenizer, mode='train',
-                 max_len=128, num_pos=3, num_neg=18):
+                 max_len=128, num_pos=3, num_neg=8):
         self.tokenizer = tokenizer
         self.max_len = max_len
         self.num_pos = num_pos
@@ -148,8 +148,7 @@ class BQPairwiseDataset(Dataset):
                     valid_data.append({'query': q, 'pos': v['pos'], 'neg': v['neg']})
         else:
             for q, v in query_dict.items():
-                # 放宽过滤条件：只要求至少有1个正样本和负样本
-                if len(v['pos']) >= self.num_pos/2 and len(v['neg']) >= 1:
+                if len(v['pos']) >= self.num_pos and len(v['neg']) >=self.num_pos:
                     valid_data.append({'query': q, 'pos': v['pos'], 'neg': v['neg']})
         print(f"有效query数量: {len(valid_data)}")
         return valid_data
@@ -167,15 +166,22 @@ class BQPairwiseDataset(Dataset):
         # ================= 生成多个正样本增强 =================
         augmented_positives = set()
         for text in positives:
-            augmented_versions = augment_positive(text, num_augments=3)  # 每个正样本生成 3 个增强版本
+            augmented_versions = augment_positive(text, num_augments=1)  # 每个正样本生成 3 个增强版本
             augmented_positives.update(augmented_versions)
 
         unique_positives = list(positives) + list(augmented_positives)  # 保持原始顺序
 
         # ================= 改进的负样本采样 =================
-        local_negs = set(negatives)
-        global_negs = set(random.sample(self.all_neg_pool, min(len(self.all_neg_pool), self.num_neg // 2)))
+        if self.mode == "dev" :
+            # 合并本地和全局负样本池
+            local_negs = set(negatives)
+            global_negs = set(self.all_neg_pool) - set(positives)  # 排除当前query的正样本
+        else:
+            local_negs = set(negatives)
+            global_negs = set(random.sample(self.all_neg_pool, min(len(self.all_neg_pool), self.num_neg // 2)))
+
         all_negs = list(local_negs | global_negs)  # 合并并去重
+
 
         # ================= 严格采样（避免重复） =================
         if len(unique_positives) >= self.num_pos:

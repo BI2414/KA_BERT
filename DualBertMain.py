@@ -2,6 +2,7 @@ import sys
 sys.dont_write_bytecode = True
 import argparse
 import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"  # 减少内存碎片
 import nni
 import time
 import pickle
@@ -42,12 +43,12 @@ procname = str(args["name"]) + "test" if args["test"] else str(args["name"])
 setproctitle.setproctitle('wjh_{}'.format(procname))
 
 # 定义gpu设备
-# device = torch.cuda.current_device()
-# args["device"] = device
-# print(torch.cuda.is_available())
+device = torch.cuda.current_device()
+args["device"] = device
+print(torch.cuda.is_available())
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 args['device'] =device
-# print(device)  # 输出当前设备
+print(device)  # 输出当前设备
 def collate_fn(batch, tokenizer, max_len=128):
     """自定义批次处理"""
     batch_queries = [item['query'] for item in batch]
@@ -98,7 +99,7 @@ def train(model, train_loader, val_loader, args):
     """训练函数"""
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, eps=args.adam_epsilon,
                                   weight_decay=args.weight_decay)
-
+    scaler = torch.cuda.amp.GradScaler()  # 混合精度缩放器
     best_score = 0
 
     for epoch in range(args.epochs):
@@ -119,17 +120,17 @@ def train(model, train_loader, val_loader, args):
             }
             labels = batch['labels'].to(args.device)
 
-            # 前向传播
-            scores, mu, logvar = model(query_inputs, doc_inputs)  # 接收mu和logvar
+            # 使用混合精度
+            with torch.cuda.amp.autocast():
+                scores, mu, logvar = model(query_inputs, doc_inputs)
+                loss = model.compute_loss(scores, labels, mu, logvar)
 
-            # 计算损失
-            loss = model.compute_loss(scores, labels, mu, logvar)  # 传递参数
-
-            # 反向传播
-            optimizer.zero_grad()
-            loss.backward()
+            # 反向传播（仅保留混合精度逻辑）
+            scaler.scale(loss).backward()  # ✅ 仅调用一次 backward
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad()
 
             epoch_loss += loss.item()
 
@@ -146,6 +147,7 @@ def train(model, train_loader, val_loader, args):
         print(f"Train Loss: {epoch_loss / len(train_loader):.4f}")
         print(f"Val Recall@10: {val_metrics['recall@10']:.4f}")
         print(f"Val MRR@10: {val_metrics['mrr@10']:.4f}\n")
+        torch.cuda.empty_cache()  # 每个 epoch 结束后清理缓存
     torch.cuda.empty_cache()
 
 
@@ -166,8 +168,9 @@ def evaluate(model, data_loader, args, top_k=(1, 5, 10)):
                 'attention_mask': batch['candidates']['attention_mask'].to(args.device)
             }
 
-            # 计算相似度
-            scores = model(query_inputs, doc_inputs).cpu().numpy()
+            # 计算相似度（仅取 scores）
+            scores, _, _ = model(query_inputs, doc_inputs)  # ✅ 解包元组
+            scores = scores.cpu().numpy()
             labels = batch['labels'].cpu().numpy()
 
             all_scores.append(scores)
@@ -185,7 +188,6 @@ def evaluate(model, data_loader, args, top_k=(1, 5, 10)):
         metrics[f'mrr@{k}'] = mrr
 
     return metrics
-
 
 def calculate_metrics(scores, labels, top_k):
     """计算Recall@K和MRR@K"""
@@ -231,9 +233,11 @@ if __name__ == "__main__":
         save_dir = "data/wjh/graduate/data/save"
         device = "cuda" if torch.cuda.is_available() else "cpu"
         batch_size = 16
-        num_pos = 2
-        num_neg = 6
+        num_pos = 3
+        num_neg = 10
         max_len = 128
+        num_pos_val = 6
+        num_neg_val = 200
         lr = 2e-5
         epochs = 5
         embed_dim = 128
@@ -254,12 +258,12 @@ if __name__ == "__main__":
     model = DualBert.EnhancedDualBERT.from_pretrained(
         args.model_name,
         config=BertConfig.from_pretrained(args.model_name),
-        args=args
+        args=args,
     ).to(args.device)
 
     # 数据加载
-    train_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='train')
-    val_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='dev')
+    train_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='train',num_pos = args.num_pos , num_neg=args.num_neg)
+    val_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='dev',num_pos = args.num_pos_val , num_neg=args.num_neg_val)
     # test_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='test')
 
     train_loader = DataLoader(
