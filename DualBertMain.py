@@ -2,7 +2,6 @@ import sys
 sys.dont_write_bytecode = True
 import argparse
 import os
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"  # 减少内存碎片
 import nni
 import time
 import pickle
@@ -31,7 +30,8 @@ from src.utils import read_examples
 from src.utils import convert_examples_to_features
 import DualBert
 from sklearn.metrics import roc_auc_score
-from BQPairwiseDataset import BQPairwiseDataset
+from CMEDQADataset import CMEDQADataset
+from CMEDQADataset import cmedqa_collate_fn
 
 
 args = get_argparse().parse_args()
@@ -43,63 +43,61 @@ procname = str(args["name"]) + "test" if args["test"] else str(args["name"])
 setproctitle.setproctitle('wjh_{}'.format(procname))
 
 # 定义gpu设备
-device = torch.cuda.current_device()
-args["device"] = device
-print(torch.cuda.is_available())
+# device = torch.cuda.current_device()
+# args["device"] = device
+# print(torch.cuda.is_available())
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 args['device'] =device
-print(device)  # 输出当前设备
-def collate_fn(batch, tokenizer, max_len=128):
-    """自定义批次处理"""
-    batch_queries = [item['query'] for item in batch]
-    batch_candidates = [item['candidates'] for item in batch]
-    batch_labels = [item['labels'] for item in batch]
-    # 添加维度验证
-    # assert all(len(x['labels']) == (args.num_pos + args.num_neg) for x in batch)
-    # "候选数量不一致"
-    # 编码查询
-    query_enc = tokenizer(
-        batch_queries,
-        max_length=max_len,
-        padding='max_length',
-        truncation=True,
-        return_tensors='pt'
-    )
-
-    # 编码候选（三维结构：[batch, num_cand, seq_len]）
-    flat_candidates = [c for sublist in batch_candidates for c in sublist]
-    cand_enc = tokenizer(
-        flat_candidates,
-        max_length=max_len,
-        padding='max_length',
-        truncation=True,
-        return_tensors='pt'
-    )
-
-    # 重组为三维结构
-    num_cand = len(batch_candidates[0])
-    cand_input_ids = cand_enc['input_ids'].view(len(batch), num_cand, -1)
-    cand_attention_mask = cand_enc['attention_mask'].view(len(batch), num_cand, -1)
-
-    return {
-        'query': {
-            'input_ids': query_enc['input_ids'],
-            'attention_mask': query_enc['attention_mask']
-        },
-        'candidates': {
-            'input_ids': cand_input_ids,
-            'attention_mask': cand_attention_mask
-        },
-        'labels': torch.FloatTensor(batch_labels)
-    }
-
-
+# print(device)  # 输出当前设备
+# def collate_fn(batch, tokenizer, max_len=128):
+#     """自定义批次处理"""
+#     batch_queries = [item['query'] for item in batch]
+#     batch_candidates = [item['candidates'] for item in batch]
+#     batch_labels = [item['labels'] for item in batch]
+#     # 添加维度验证
+#     # assert all(len(x['labels']) == (args.num_pos + args.num_neg) for x in batch)
+#     # "候选数量不一致"
+#     # 编码查询
+#     query_enc = tokenizer(
+#         batch_queries,
+#         max_length=max_len,
+#         padding='max_length',
+#         truncation=True,
+#         return_tensors='pt'
+#     )
+#
+#     # 编码候选（三维结构：[batch, num_cand, seq_len]）
+#     flat_candidates = [c for sublist in batch_candidates for c in sublist]
+#     cand_enc = tokenizer(
+#         flat_candidates,
+#         max_length=max_len,
+#         padding='max_length',
+#         truncation=True,
+#         return_tensors='pt'
+#     )
+#
+#     # 重组为三维结构
+#     num_cand = len(batch_candidates[0])
+#     cand_input_ids = cand_enc['input_ids'].view(len(batch), num_cand, -1)
+#     cand_attention_mask = cand_enc['attention_mask'].view(len(batch), num_cand, -1)
+#
+#     return {
+#         'query': {
+#             'input_ids': query_enc['input_ids'],
+#             'attention_mask': query_enc['attention_mask']
+#         },
+#         'candidates': {
+#             'input_ids': cand_input_ids,
+#             'attention_mask': cand_attention_mask
+#         },
+#         'labels': torch.FloatTensor(batch_labels)
+#     }
 
 def train(model, train_loader, val_loader, args):
     """训练函数"""
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, eps=args.adam_epsilon,
                                   weight_decay=args.weight_decay)
-    scaler = torch.cuda.amp.GradScaler()  # 混合精度缩放器
+
     best_score = 0
 
     for epoch in range(args.epochs):
@@ -120,17 +118,17 @@ def train(model, train_loader, val_loader, args):
             }
             labels = batch['labels'].to(args.device)
 
-            # 使用混合精度
-            with torch.cuda.amp.autocast():
-                scores, mu, logvar = model(query_inputs, doc_inputs)
-                loss = model.compute_loss(scores, labels, mu, logvar)
+            # 前向传播
+            scores, mu, logvar = model(query_inputs, doc_inputs)  # 接收mu和logvar
 
-            # 反向传播（仅保留混合精度逻辑）
-            scaler.scale(loss).backward()  # ✅ 仅调用一次 backward
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            scaler.step(optimizer)
-            scaler.update()
+            # 计算损失
+            loss = model.compute_loss(scores, labels, mu, logvar)  # 传递参数
+
+            # 反向传播
             optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
 
             epoch_loss += loss.item()
 
@@ -147,11 +145,10 @@ def train(model, train_loader, val_loader, args):
         print(f"Train Loss: {epoch_loss / len(train_loader):.4f}")
         print(f"Val Recall@10: {val_metrics['recall@10']:.4f}")
         print(f"Val MRR@10: {val_metrics['mrr@10']:.4f}\n")
-        torch.cuda.empty_cache()  # 每个 epoch 结束后清理缓存
     torch.cuda.empty_cache()
 
 
-def evaluate(model, data_loader, args, top_k=(1, 5, 10)):
+def evaluate(model, data_loader, args, top_k=(1, 3, 5, 10)):
     """评估函数"""
     model.eval()
     all_scores = []
@@ -168,9 +165,8 @@ def evaluate(model, data_loader, args, top_k=(1, 5, 10)):
                 'attention_mask': batch['candidates']['attention_mask'].to(args.device)
             }
 
-            # 计算相似度（仅取 scores）
-            scores, _, _ = model(query_inputs, doc_inputs)  # ✅ 解包元组
-            scores = scores.cpu().numpy()
+            # 计算相似度
+            scores = model(query_inputs, doc_inputs).cpu().numpy()
             labels = batch['labels'].cpu().numpy()
 
             all_scores.append(scores)
@@ -188,6 +184,7 @@ def evaluate(model, data_loader, args, top_k=(1, 5, 10)):
         metrics[f'mrr@{k}'] = mrr
 
     return metrics
+
 
 def calculate_metrics(scores, labels, top_k):
     """计算Recall@K和MRR@K"""
@@ -228,16 +225,16 @@ def test(model, test_loader, args):
 if __name__ == "__main__":
     # 参数配置
     class Args:
-        data_path = "data/wjh/graduate/AugData/BQ"
+        data_path = "data/wjh/graduate/AugData/cMedQA2"
         model_name = "data/wjh/graduate/data/bert-base-chinese"
         save_dir = "data/wjh/graduate/data/save"
         device = "cuda" if torch.cuda.is_available() else "cpu"
         batch_size = 16
-        num_pos = 3
-        num_neg = 10
+        num_pos = 2
+        num_neg = 6
         max_len = 128
         num_pos_val = 6
-        num_neg_val = 200
+        num_neg_val = 100
         lr = 2e-5
         epochs = 5
         embed_dim = 128
@@ -258,30 +255,63 @@ if __name__ == "__main__":
     model = DualBert.EnhancedDualBERT.from_pretrained(
         args.model_name,
         config=BertConfig.from_pretrained(args.model_name),
-        args=args,
+        args=args
     ).to(args.device)
 
     # 数据加载
-    train_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='train',num_pos = args.num_pos , num_neg=args.num_neg)
-    val_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='dev',num_pos = args.num_pos_val , num_neg=args.num_neg_val)
-    # test_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='test')
+    # BQ数据集
+    # train_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='train',num_pos = args.num_pos , num_neg=args.num_neg)
+    # val_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='dev',num_pos = args.num_pos_val , num_neg=args.num_neg_val)
+    # train_loader = DataLoader(
+    #     train_dataset,
+    #     batch_size=args.batch_size,
+    #     shuffle=True,
+    #     collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
+    # )
+    # val_loader = DataLoader(
+    #     val_dataset,
+    #     batch_size=args.batch_size,
+    #     collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
+    # )
 
+    # -----------------------------------------------
+    # CMEDQA数据集
+    # 加载ID到文本的映射
+    questions = pd.read_csv('data/wjh/graduate/AugData/cMedQA2/question.csv', names=['id', 'text'])
+    answers = pd.read_csv('data/wjh/graduate/AugData/cMedQA2/answer.csv', names=['id','question_id', 'text'])
+    qid_to_text = dict(zip(questions['id'], questions['text']))
+    aid_to_text = dict(zip(answers['id'], answers['text']))
+
+    # 初始化数据集（训练模式无需任何采样参数）
+    train_dataset = CMEDQADataset(
+        question_id_to_text=qid_to_text,
+        ans_id_to_text=aid_to_text,
+        data_path=args.data_path,
+        mode='train'
+    )
+
+    val_dataset = CMEDQADataset(
+        question_id_to_text=qid_to_text,
+        ans_id_to_text=aid_to_text,
+        data_path=args.data_path,
+        mode='dev',
+        max_candidates=200  # 与评估时的候选数一致
+    )
+
+    # DataLoader配置
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
+        collate_fn=lambda b: cmedqa_collate_fn(b, tokenizer, args.max_len)
     )
+
     val_loader = DataLoader(
         val_dataset,
         batch_size=args.batch_size,
-        collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
+        shuffle=True,
+        collate_fn=lambda b: cmedqa_collate_fn(b, tokenizer, args.max_len)
     )
-    # test_loader = DataLoader(
-    #     test_dataset,
-    #     batch_size=args.batch_size,
-    #     collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
-    # )
 
     # 训练流程
     train(model, train_loader, val_loader, args)
