@@ -238,24 +238,25 @@ if __name__ == "__main__":
         mode='train',
         tokenizer=tokenizer,  # 必须传递
         max_len=args.max_len,
+        max_candidates=2,  # 训练时1正1负
         cache_dir=".cache"
     )
 
     val_dataset = CMEDQADataset(
         data_path=args.data_path,
         mode='dev',
-        tokenizer=tokenizer,  # 必须传递
+        tokenizer=tokenizer,
         max_len=args.max_len,
         max_candidates=200,
         cache_dir=".cache"
     )
 
-    # DataLoader配置（训练集保持shuffle=True）
+    # DataLoader 使用简化后的 collate_fn
     train_loader = DataLoader(
         train_dataset,
-        batch_size=32,
+        batch_size=256,  # 可大幅增加 batch_size
         shuffle=True,
-        collate_fn=lambda b: cmedqa_collate_fn(b, tokenizer, args.max_len),
+        collate_fn=cmedqa_collate_fn,  # 直接使用简化后的函数
         # num_workers=8,
         pin_memory=True
     )
@@ -265,7 +266,7 @@ if __name__ == "__main__":
         val_dataset,
         batch_size=32,
         shuffle=False,
-        collate_fn=lambda b: cmedqa_collate_fn(b, tokenizer, args.max_len),
+        collate_fn= cmedqa_collate_fn,
         # num_workers=8,
         pin_memory=True
     )

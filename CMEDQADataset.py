@@ -6,6 +6,7 @@ from collections import defaultdict
 import os
 import pickle
 from hashlib import md5
+from tqdm import tqdm
 
 class CMEDQADataset(Dataset):
     """cMedQA2数据集专用处理类（无动态采样）"""
@@ -66,30 +67,71 @@ class CMEDQADataset(Dataset):
         self.aid_to_text = CMEDQADataset._aid_to_text
 
         # === 第二层缓存：处理后的样本数据 ===#
-        # 生成唯一缓存文件名（包含关键参数哈希）
-        # 生成唯一缓存文件名（包含分词器哈希）
-        tokenizer_hash = md5(pickle.dumps(tokenizer)).hexdigest()[:8]  # 生成8位哈希
+        # 生成唯一缓存文件名（包含分词器哈希和关键参数）
+        tokenizer_hash = md5(pickle.dumps(tokenizer)).hexdigest()[:8]
         cache_name = f"{mode}_mc{max_candidates}_ml{max_len}_tok{tokenizer_hash}.pkl"
         cache_path = os.path.join(cache_dir, cache_name)
 
         if os.path.exists(cache_path):
-            # 从缓存加载（假设缓存数据已验证）
+            # 从缓存加载预处理后的 Tensor 数据
             with open(cache_path, "rb") as f:
-                self.samples = pickle.load(f)
+                self.tokenized_samples = pickle.load(f)  # 直接加载分词结果
         else:
-            # 处理原始数据并验证
+            # 无缓存时处理原始数据并分词
             if mode == 'train':
                 self._process_train()
             else:
                 self._process_eval()
-            self._validate_data_consistency()  # ✅ 仅在生成缓存时验证
+            # self._validate_data_consistency()
 
-            # 保存缓存
+            self.tokenized_samples = []
+            for sample in tqdm(self.samples, desc="Tokenizing Data"):
+                # 获取问题和候选答案文本
+                query_text = self.qid_to_text[sample['question_id']]
+
+                # 根据模式获取候选答案ID列表
+                if self.mode == 'train':
+                    # 训练模式：candidates 是 [pos_ans_id, neg_ans_id]
+                    candidate_ids = sample['candidates']
+                else:
+                    # 评估模式：candidates 是多个答案ID
+                    candidate_ids = sample['candidates']
+
+                # 转换为文本
+                candidate_texts = [
+                    self.aid_to_text.get(ans_id, "[UNK]")
+                    for ans_id in candidate_ids
+                ]
+
+                # Tokenize 查询和候选
+                query_enc = tokenizer(
+                    query_text,
+                    max_length=max_len,
+                    truncation=True,
+                    padding='max_length',
+                    return_tensors='pt'
+                )
+                cand_enc = tokenizer(
+                    candidate_texts,
+                    max_length=max_len,
+                    truncation=True,
+                    padding='max_length',
+                    return_tensors='pt',
+                    return_attention_mask=True
+                )
+
+                # 存储为字典（避免重复分词）
+                self.tokenized_samples.append({
+                    'query_input_ids': query_enc['input_ids'].squeeze(0),  # [seq_len]
+                    'query_attention_mask': query_enc['attention_mask'].squeeze(0),
+                    'cand_input_ids': cand_enc['input_ids'],  # [num_cand, seq_len]
+                    'cand_attention_mask': cand_enc['attention_mask'],
+                    'labels': torch.FloatTensor(sample['labels'])
+                })
+
+            # 保存预处理结果
             with open(cache_path, "wb") as f:
-                pickle.dump(self.samples, f)
-
-        # 数据一致性验证
-        self._validate_data_consistency()
+                pickle.dump(self.tokenized_samples, f)
 
 
     def _process_train(self):
@@ -98,7 +140,8 @@ class CMEDQADataset(Dataset):
 
         # 显式指定列数据类型为字符串（避免自动推断）
         self.data = pd.read_csv(
-            f"{self.data_path}/train_candidates.txt",
+            # f"{self.data_path}/train_candidates.txt",
+            f"{self.data_path}/train.txt",
             names=['question_id', 'pos_ans_id', 'neg_ans_id'],
             dtype={'question_id': str, 'pos_ans_id': str, 'neg_ans_id': str},  # ✅ 强制转换为字符串
             sep=',',  # 明确分隔符
@@ -118,11 +161,15 @@ class CMEDQADataset(Dataset):
         # 过滤无效行（可选）
         self.data = self.data.dropna()  # 删除包含空值的行
 
+        # 构建统一格式的 samples
         for _, row in self.data.iterrows():
             self.samples.append({
-                'question_id': row['question_id'].strip(),  # 去除首尾空格
-                'pos_ans_id': row['pos_ans_id'].strip(),
-                'neg_ans_id': row['neg_ans_id'].strip()
+                'question_id': row['question_id'].strip(),
+                'candidates': [  # ✅ 关键修改：构造 candidates 列表
+                    row['pos_ans_id'].strip(),
+                    row['neg_ans_id'].strip()
+                ],
+                'labels': [1, 0]  # ✅ 标签直接存储
             })
 
     def _process_eval(self):
@@ -132,7 +179,8 @@ class CMEDQADataset(Dataset):
 
         # 显式指定列数据类型
         self.data = pd.read_csv(
-            f"{self.data_path}/{self.mode}_candidates.txt",
+            # f"{self.data_path}/{self.mode}_candidates.txt",
+            f"{self.data_path}/{self.mode}.txt",
             names=['question_id', 'ans_id', 'cnt', 'label'],
             dtype={'question_id': str, 'ans_id': str, 'cnt': int, 'label': int},
             sep=',',
@@ -164,28 +212,11 @@ class CMEDQADataset(Dataset):
         self.question_ids = [sample['question_id'] for sample in self.samples]
 
     def __len__(self):
-        return len(self.samples)  # 直接返回 samples 的长度
+        return len(self.tokenized_samples)  # 直接返回分词后样本数
 
     def __getitem__(self, idx):
-        if self.mode == 'train':
-            # 原有训练模式逻辑
-            sample = self.samples[idx]
-            return {
-                'query': self.qid_to_text[sample['question_id']],
-                'candidates': [
-                    self.aid_to_text[sample['pos_ans_id']],
-                    self.aid_to_text[sample['neg_ans_id']]
-                ],
-                'labels': [1, 0]
-            }
-        else:
-            # 评估模式直接从 samples 获取
-            sample = self.samples[idx]
-            return {
-                'query': self.qid_to_text[sample['question_id']],
-                'candidates': [self.aid_to_text.get(ans_id, "[UNK]") for ans_id in sample['candidates']],
-                'labels': sample['labels']
-            }
+        # 直接返回预处理的 Tensor 数据
+        return self.tokenized_samples[idx]
 
     def _validate_data_consistency(self):
         def is_valid_question_id(s):
@@ -215,46 +246,18 @@ class CMEDQADataset(Dataset):
         if os.path.exists(cache_dir):
             for f in os.listdir(cache_dir):
                 os.remove(os.path.join(cache_dir, f))
-def cmedqa_collate_fn(batch, tokenizer, max_len=128):
-    """定制化批次处理函数"""
-    batch_queries = [item['query'] for item in batch]
-    batch_candidates = [item['candidates'] for item in batch]
-    batch_labels = [item['labels'] for item in batch]
-
-    # Tokenize查询
-    query_enc = tokenizer(
-        batch_queries,
-        max_length=max_len,
-        padding='max_length',
-        truncation=True,
-        return_tensors='pt'
-    )
-
-    # Tokenize候选（三维结构：[batch, num_cand, seq_len]）
-    flat_candidates = [c for sublist in batch_candidates for c in sublist]
-    cand_enc = tokenizer(
-        flat_candidates,
-        max_length=max_len,
-        padding='max_length',
-        truncation=True,
-        return_tensors='pt'
-    )
-
-    # 重组为三维张量
-    num_cand = len(batch_candidates[0])  # 训练时为2，评估时可变
-    cand_input_ids = cand_enc['input_ids'].view(len(batch), num_cand, -1)
-    cand_attention_mask = cand_enc['attention_mask'].view(len(batch), num_cand, -1)
-
+def cmedqa_collate_fn(batch):
+    """合并预处理的 Tensor 数据"""
     return {
         'query': {
-            'input_ids': query_enc['input_ids'],
-            'attention_mask': query_enc['attention_mask']
+            'input_ids': torch.stack([item['query_input_ids'] for item in batch]),  # [batch, seq_len]
+            'attention_mask': torch.stack([item['query_attention_mask'] for item in batch])
         },
         'candidates': {
-            'input_ids': cand_input_ids,
-            'attention_mask': cand_attention_mask
+            'input_ids': torch.stack([item['cand_input_ids'] for item in batch]),  # [batch, num_cand, seq_len]
+            'attention_mask': torch.stack([item['cand_attention_mask'] for item in batch])
         },
-        'labels': torch.FloatTensor(batch_labels)  # [batch, num_cand]
+        'labels': torch.stack([item['labels'] for item in batch])  # [batch, num_cand]
     }
 
 
