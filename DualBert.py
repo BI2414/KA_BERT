@@ -54,7 +54,6 @@ class EnhancedDualBERT(BertPreTrainedModel):
                 self.doc_bert.encoder.layer[i].load_state_dict(
                     self.query_bert.encoder.layer[i].state_dict()
                 )
-
         # 添加Adapter
         self.query_bert = self._add_adapters(self.query_bert, args.adapter_size)
         self.doc_bert = self._add_adapters(self.doc_bert, args.adapter_size)
@@ -115,7 +114,7 @@ class EnhancedDualBERT(BertPreTrainedModel):
 
         return self.keyword_attention(hiddens, keyword_mask)
 
-    def _generate_keyword_mask(self, attn_weights, topk=8):
+    def _generate_keyword_mask(self, attn_weights, topk=4):
         """动态生成关键词掩码（同STAMP逻辑）"""
         # attn_weights形状: [batch, heads, seq_len, seq_len]
         importance = attn_weights.mean(dim=1)  # 平均多头注意力

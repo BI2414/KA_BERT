@@ -32,7 +32,8 @@ import DualBert
 from sklearn.metrics import roc_auc_score
 from CMEDQADataset import CMEDQADataset
 from CMEDQADataset import cmedqa_collate_fn
-
+from torch.cuda.amp import autocast, GradScaler
+torch.backends.cudnn.benchmark = True  # 启用cuDNN自动优化
 
 args = get_argparse().parse_args()
 args = vars(args)
@@ -49,61 +50,21 @@ setproctitle.setproctitle('wjh_{}'.format(procname))
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 args['device'] =device
 # print(device)  # 输出当前设备
-# def collate_fn(batch, tokenizer, max_len=128):
-#     """自定义批次处理"""
-#     batch_queries = [item['query'] for item in batch]
-#     batch_candidates = [item['candidates'] for item in batch]
-#     batch_labels = [item['labels'] for item in batch]
-#     # 添加维度验证
-#     # assert all(len(x['labels']) == (args.num_pos + args.num_neg) for x in batch)
-#     # "候选数量不一致"
-#     # 编码查询
-#     query_enc = tokenizer(
-#         batch_queries,
-#         max_length=max_len,
-#         padding='max_length',
-#         truncation=True,
-#         return_tensors='pt'
-#     )
-#
-#     # 编码候选（三维结构：[batch, num_cand, seq_len]）
-#     flat_candidates = [c for sublist in batch_candidates for c in sublist]
-#     cand_enc = tokenizer(
-#         flat_candidates,
-#         max_length=max_len,
-#         padding='max_length',
-#         truncation=True,
-#         return_tensors='pt'
-#     )
-#
-#     # 重组为三维结构
-#     num_cand = len(batch_candidates[0])
-#     cand_input_ids = cand_enc['input_ids'].view(len(batch), num_cand, -1)
-#     cand_attention_mask = cand_enc['attention_mask'].view(len(batch), num_cand, -1)
-#
-#     return {
-#         'query': {
-#             'input_ids': query_enc['input_ids'],
-#             'attention_mask': query_enc['attention_mask']
-#         },
-#         'candidates': {
-#             'input_ids': cand_input_ids,
-#             'attention_mask': cand_attention_mask
-#         },
-#         'labels': torch.FloatTensor(batch_labels)
-#     }
-
 def train(model, train_loader, val_loader, args):
     """训练函数"""
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, eps=args.adam_epsilon,
                                   weight_decay=args.weight_decay)
-
+    scaler = GradScaler()
+    accumulation_steps = 4  # 梯度累积步数
     best_score = 0
 
     for epoch in range(args.epochs):
         model.train()
         epoch_loss = 0
         torch.cuda.empty_cache()
+
+        # 新增：初始化 step 计数器
+        step = 0  # ✅ 跟踪累积步数
 
         # 训练阶段
         for batch in tqdm(train_loader, desc=f"Epoch {epoch + 1}"):
@@ -118,19 +79,27 @@ def train(model, train_loader, val_loader, args):
             }
             labels = batch['labels'].to(args.device)
 
-            # 前向传播
-            scores, mu, logvar = model(query_inputs, doc_inputs)  # 接收mu和logvar
+            with autocast():
+                scores, mu, logvar = model(query_inputs, doc_inputs)
+                loss = model.compute_loss(scores, labels, mu, logvar)
+                loss = loss / accumulation_steps  # ✅ 损失平均
 
-            # 计算损失
-            loss = model.compute_loss(scores, labels, mu, logvar)  # 传递参数
+            # 反向传播（累积梯度）
+            scaler.scale(loss).backward()  # ✅ 缩放梯度
 
-            # 反向传播
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            # 每隔 accumulation_steps 步更新一次参数
+            if (step + 1) % accumulation_steps == 0:
+                # 梯度裁剪（必须在反缩放后执行）
+                scaler.unscale_(optimizer)  # ✅ 解除缩放以正确裁剪
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-            epoch_loss += loss.item()
+                # 更新参数并重置梯度
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+
+            epoch_loss += loss.item() * accumulation_steps  # ✅ 恢复实际损失值
+            step += 1  # ✅ 步数递增
 
         # 验证阶段
         val_metrics = evaluate(model, val_loader, args)
@@ -145,7 +114,7 @@ def train(model, train_loader, val_loader, args):
         print(f"Train Loss: {epoch_loss / len(train_loader):.4f}")
         print(f"Val Recall@10: {val_metrics['recall@10']:.4f}")
         print(f"Val MRR@10: {val_metrics['mrr@10']:.4f}\n")
-    torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
 
 def evaluate(model, data_loader, args, top_k=(1, 3, 5, 10)):
@@ -165,15 +134,17 @@ def evaluate(model, data_loader, args, top_k=(1, 3, 5, 10)):
                 'attention_mask': batch['candidates']['attention_mask'].to(args.device)
             }
 
-            # 计算相似度（明确提取 scores）
-            scores, _, _ = model(query_inputs, doc_inputs)  # ✅ 解包元组
+            # 修正点：缩进 autocast 作用域内的代码
+            with autocast():  # ✅ 混合精度前向
+                scores, _, _ = model(query_inputs, doc_inputs)  # 必须缩进到 with 块内
+
             scores = scores.cpu().numpy()  # ✅ 仅处理 scores
             labels = batch['labels'].cpu().numpy()
 
             all_scores.append(scores)
             all_labels.append(labels)
 
-    # 合并结果
+    # 合并结果（以下代码不变）
     scores = np.concatenate(all_scores, axis=0)
     labels = np.concatenate(all_labels, axis=0)
 
@@ -231,22 +202,18 @@ if __name__ == "__main__":
         save_dir = "data/wjh/graduate/data/save"
         device = "cuda" if torch.cuda.is_available() else "cpu"
         batch_size = 32
-        num_pos = 2
-        num_neg = 6
-        max_len = 128
-        num_pos_val = 6
-        num_neg_val = 100
         lr = 2e-5
         epochs = 5
         embed_dim = 128
-        share_low_layers = 6
-        use_gate = True
+        share_low_layers = 3
+        use_gate = False
         kl_weight = 0.1
         adapter_size = 64  # Adapter的中间维度
-        use_cross_attn = True  # 启用交叉注意力
+        use_cross_attn = False  # 启用交叉注意力
         contrastive_margin = 0.2  # 对比损失边界
         adam_epsilon = 1e-8  # 默认值
         weight_decay = 0.01  # 默认值
+        max_len = 128
 
 
     args = Args()
@@ -259,61 +226,48 @@ if __name__ == "__main__":
         args=args
     ).to(args.device)
 
-    # 数据加载
-    # BQ数据集
-    # train_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='train',num_pos = args.num_pos , num_neg=args.num_neg)
-    # val_dataset = BQPairwiseDataset(args.data_path, tokenizer, mode='dev',num_pos = args.num_pos_val , num_neg=args.num_neg_val)
-    # train_loader = DataLoader(
-    #     train_dataset,
-    #     batch_size=args.batch_size,
-    #     shuffle=True,
-    #     collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
-    # )
-    # val_loader = DataLoader(
-    #     val_dataset,
-    #     batch_size=args.batch_size,
-    #     collate_fn=lambda b: collate_fn(b, tokenizer, args.max_len)
-    # )
-
     # -----------------------------------------------
     # CMEDQA数据集
     # 加载ID到文本的映射
-    questions = pd.read_csv('data/wjh/graduate/AugData/cMedQA2/question.csv', names=['id', 'text'])
-    answers = pd.read_csv('data/wjh/graduate/AugData/cMedQA2/answer.csv', names=['id','question_id', 'text'])
-    qid_to_text = dict(zip(questions['id'], questions['text']))
-    aid_to_text = dict(zip(answers['id'], answers['text']))
+
 
     # 初始化数据集（训练模式无需任何采样参数）
+    # DualBertMain.py中修改数据集初始化代码
     train_dataset = CMEDQADataset(
-        question_id_to_text=qid_to_text,
-        ans_id_to_text=aid_to_text,
         data_path=args.data_path,
-        mode='train'
+        mode='train',
+        tokenizer=tokenizer,  # 必须传递
+        max_len=args.max_len,
+        cache_dir=".cache"
     )
 
     val_dataset = CMEDQADataset(
-        question_id_to_text=qid_to_text,
-        ans_id_to_text=aid_to_text,
         data_path=args.data_path,
         mode='dev',
-        max_candidates=200  # 与评估时的候选数一致
+        tokenizer=tokenizer,  # 必须传递
+        max_len=args.max_len,
+        max_candidates=200,
+        cache_dir=".cache"
     )
 
-    # DataLoader配置
+    # DataLoader配置（训练集保持shuffle=True）
     train_loader = DataLoader(
         train_dataset,
-        batch_size=args.batch_size,
+        batch_size=32,
         shuffle=True,
         collate_fn=lambda b: cmedqa_collate_fn(b, tokenizer, args.max_len),
-        num_workers=4
+        # num_workers=8,
+        pin_memory=True
     )
 
+    # 验证集关闭shuffle
     val_loader = DataLoader(
         val_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
+        batch_size=32,
+        shuffle=False,
         collate_fn=lambda b: cmedqa_collate_fn(b, tokenizer, args.max_len),
-        num_workers = 4
+        # num_workers=8,
+        pin_memory=True
     )
 
     # 训练流程
