@@ -69,7 +69,7 @@ class CMEDQADataset(Dataset):
         # === 第二层缓存：处理后的样本数据 ===#
         # 生成唯一缓存文件名（包含分词器哈希和关键参数）
         tokenizer_hash = md5(pickle.dumps(tokenizer)).hexdigest()[:8]
-        cache_name = f"{mode}_mc{max_candidates}_ml{max_len}_tok{tokenizer_hash}.pkl"
+        cache_name = f"{mode}_mc{max_candidates}_ml{max_len}_tok.pkl"
         cache_path = os.path.join(cache_dir, cache_name)
 
         if os.path.exists(cache_path):
@@ -140,8 +140,8 @@ class CMEDQADataset(Dataset):
 
         # 显式指定列数据类型为字符串（避免自动推断）
         self.data = pd.read_csv(
-            # f"{self.data_path}/train_candidates.txt",
-            f"{self.data_path}/train.txt",
+            f"{self.data_path}/train_candidates.txt",
+            # f"{self.data_path}/train.txt",
             names=['question_id', 'pos_ans_id', 'neg_ans_id'],
             dtype={'question_id': str, 'pos_ans_id': str, 'neg_ans_id': str},  # ✅ 强制转换为字符串
             sep=',',  # 明确分隔符
@@ -179,8 +179,8 @@ class CMEDQADataset(Dataset):
 
         # 显式指定列数据类型
         self.data = pd.read_csv(
-            # f"{self.data_path}/{self.mode}_candidates.txt",
-            f"{self.data_path}/{self.mode}.txt",
+            f"{self.data_path}/{self.mode}_candidates.txt",
+            # f"{self.data_path}/{self.mode}.txt",
             names=['question_id', 'ans_id', 'cnt', 'label'],
             dtype={'question_id': str, 'ans_id': str, 'cnt': int, 'label': int},
             sep=',',
