@@ -31,7 +31,7 @@ from src.utils import convert_examples_to_features
 import DualBert
 from sklearn.metrics import roc_auc_score
 from CMEDQADataset import CMEDQADataset
-from CMEDQADataset import cmedqa_collate_fn
+from CMEDQADataset import optimized_collate_fn
 from torch.cuda.amp import autocast, GradScaler
 torch.backends.cudnn.benchmark = True  # 启用cuDNN自动优化
 
@@ -235,7 +235,6 @@ if __name__ == "__main__":
     # DualBertMain.py中修改数据集初始化代码
     train_dataset = CMEDQADataset(
         data_path=args.data_path,
-        batch_size=256,  # 可大幅增加 batch_size
         mode='train',
         tokenizer=tokenizer,  # 必须传递
         max_len=args.max_len,
@@ -245,7 +244,6 @@ if __name__ == "__main__":
 
     val_dataset = CMEDQADataset(
         data_path=args.data_path,
-        batch_size=256,  # 可大幅增加 batch_size
         mode='dev',
         tokenizer=tokenizer,
         max_len=args.max_len,
@@ -256,21 +254,23 @@ if __name__ == "__main__":
     # DataLoader 使用简化后的 collate_fn
     train_loader = DataLoader(
         train_dataset,
-        batch_size=256,  # 可大幅增加 batch_size
+        batch_size=512,  # 可大幅增加 batch_size
         shuffle=True,
-        collate_fn=cmedqa_collate_fn,  # 直接使用简化后的函数
-        # num_workers=8,
-        pin_memory=True
+        collate_fn=optimized_collate_fn,  # 直接使用简化后的函数
+        num_workers=12,
+        pin_memory=True,
+        prefetch_factor=4  # 预加载批次
     )
 
     # 验证集关闭shuffle
     val_loader = DataLoader(
         val_dataset,
-        batch_size=256,
-        shuffle=False,
-        collate_fn= cmedqa_collate_fn,
-        # num_workers=8,
-        pin_memory=True
+        batch_size=512,
+        shuffle=True,
+        collate_fn= optimized_collate_fn,
+        num_workers=12,
+        pin_memory=True,
+        prefetch_factor=4  # 预加载批次
     )
 
     # 训练流程
