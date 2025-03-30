@@ -165,8 +165,9 @@ def evaluate(model, data_loader, args, top_k=(1, 3, 5, 10)):
                 'attention_mask': batch['candidates']['attention_mask'].to(args.device)
             }
 
-            # 计算相似度
-            scores = model(query_inputs, doc_inputs).cpu().numpy()
+            # 计算相似度（明确提取 scores）
+            scores, _, _ = model(query_inputs, doc_inputs)  # ✅ 解包元组
+            scores = scores.cpu().numpy()  # ✅ 仅处理 scores
             labels = batch['labels'].cpu().numpy()
 
             all_scores.append(scores)
@@ -229,7 +230,7 @@ if __name__ == "__main__":
         model_name = "data/wjh/graduate/data/bert-base-chinese"
         save_dir = "data/wjh/graduate/data/save"
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        batch_size = 16
+        batch_size = 32
         num_pos = 2
         num_neg = 6
         max_len = 128
@@ -303,14 +304,16 @@ if __name__ == "__main__":
         train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        collate_fn=lambda b: cmedqa_collate_fn(b, tokenizer, args.max_len)
+        collate_fn=lambda b: cmedqa_collate_fn(b, tokenizer, args.max_len),
+        num_workers=4
     )
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        collate_fn=lambda b: cmedqa_collate_fn(b, tokenizer, args.max_len)
+        collate_fn=lambda b: cmedqa_collate_fn(b, tokenizer, args.max_len),
+        num_workers = 4
     )
 
     # 训练流程
