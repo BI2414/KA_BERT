@@ -235,6 +235,7 @@ if __name__ == "__main__":
     # DualBertMain.py中修改数据集初始化代码
     train_dataset = CMEDQADataset(
         data_path=args.data_path,
+        batch_size=256,  # 可大幅增加 batch_size
         mode='train',
         tokenizer=tokenizer,  # 必须传递
         max_len=args.max_len,
@@ -244,6 +245,7 @@ if __name__ == "__main__":
 
     val_dataset = CMEDQADataset(
         data_path=args.data_path,
+        batch_size=256,  # 可大幅增加 batch_size
         mode='dev',
         tokenizer=tokenizer,
         max_len=args.max_len,
@@ -264,7 +266,7 @@ if __name__ == "__main__":
     # 验证集关闭shuffle
     val_loader = DataLoader(
         val_dataset,
-        batch_size=32,
+        batch_size=256,
         shuffle=False,
         collate_fn= cmedqa_collate_fn,
         # num_workers=8,
