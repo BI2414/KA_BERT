@@ -31,7 +31,7 @@ from src.utils import convert_examples_to_features
 import DualBert
 from sklearn.metrics import roc_auc_score
 from CMEDQADataset import CMEDQADataset
-from CMEDQADataset import optimized_collate_fn
+from CMEDQADataset import cmedqa_collate_fn
 from torch.cuda.amp import autocast, GradScaler
 torch.backends.cudnn.benchmark = True  # 启用cuDNN自动优化
 
@@ -154,6 +154,8 @@ def evaluate(model, data_loader, args, top_k=(1, 3, 5, 10)):
         recall, mrr = calculate_metrics(scores, labels, k)
         metrics[f'recall@{k}'] = recall
         metrics[f'mrr@{k}'] = mrr
+        print(f'recall@{k}:' , recall)
+        print(f'mrr@{k}:' , mrr)
 
     return metrics
 
@@ -165,11 +167,13 @@ def calculate_metrics(scores, labels, top_k):
     for i in range(scores.shape[0]):
         # 获取每个query的排序结果
         sorted_indices = np.argsort(-scores[i])
+        print("sorted_indices",sorted_indices)
         relevant = np.where(labels[i][sorted_indices] == 1)[0]
 
         # Recall@K
         if len(relevant) > 0 and relevant[0] < top_k:
             recall += 1
+            print(recall)
 
         # MRR@K
         if len(relevant) > 0:
@@ -201,15 +205,15 @@ if __name__ == "__main__":
         model_name = "data/wjh/graduate/data/bert-base-chinese"
         save_dir = "data/wjh/graduate/data/save"
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        batch_size = 32
+        batch_size = 64
         lr = 2e-5
         epochs = 5
         embed_dim = 128
         share_low_layers = 3
-        use_gate = False
+        use_gate = True
         kl_weight = 0.1
         adapter_size = 64  # Adapter的中间维度
-        use_cross_attn = False  # 启用交叉注意力
+        use_cross_attn = True  # 启用交叉注意力
         contrastive_margin = 0.2  # 对比损失边界
         adam_epsilon = 1e-8  # 默认值
         weight_decay = 0.01  # 默认值
@@ -254,23 +258,21 @@ if __name__ == "__main__":
     # DataLoader 使用简化后的 collate_fn
     train_loader = DataLoader(
         train_dataset,
-        batch_size=512,  # 可大幅增加 batch_size
+        batch_size=64,  # 可大幅增加 batch_size
         shuffle=True,
-        collate_fn=optimized_collate_fn,  # 直接使用简化后的函数
+        collate_fn=cmedqa_collate_fn,  # 直接使用简化后的函数
         num_workers=12,
-        pin_memory=True,
-        prefetch_factor=4  # 预加载批次
+        pin_memory=True
     )
 
     # 验证集关闭shuffle
     val_loader = DataLoader(
         val_dataset,
-        batch_size=512,
-        shuffle=True,
-        collate_fn= optimized_collate_fn,
+        batch_size=64,
+        shuffle=False,
+        collate_fn= cmedqa_collate_fn,
         num_workers=12,
-        pin_memory=True,
-        prefetch_factor=4  # 预加载批次
+        pin_memory=True
     )
 
     # 训练流程

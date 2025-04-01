@@ -1,188 +1,288 @@
-import os
+# CMEDQADataset.py
 import pandas as pd
 import torch
-from torch.utils.data import Dataset, DataLoader
-from transformers import BertTokenizerFast
+from torch.utils.data import Dataset
+from collections import defaultdict
+import os
 import pickle
+from hashlib import md5
 from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor
-
 
 class CMEDQADataset(Dataset):
-    _cache_loaded = False
-    _q_encodings = None
-    _a_encodings = None
-    _qid_map = None
-    _aid_map = None
+    """cMedQA2数据集专用处理类（无动态采样）"""
+    # 全局缓存字典（避免重复加载）
+    # 第一层缓存：全局问题和答案文本映射
+    _qid_to_text = None
+    _aid_to_text = None
 
-    def __init__(self, data_path, mode='train', max_candidates=200,
-                 tokenizer=None, max_len=128, cache_dir=".cache",
-                 device='cpu'):
+    def __init__(
+            self,
+            data_path,
+            mode='train',
+            max_candidates=200,
+            tokenizer=None,  # ✅ 允许为None
+            max_len=128,  # ✅ 默认值
+            cache_dir=".cache"
+    ):
+        """
+        Args:
+            data_path: 数据集根目录（包含question.csv, answer.csv等）
+            mode: train/dev/test
+            max_candidates: 评估时最大候选数
+            tokenizer: 分词器（用于缓存扩展）
+            max_len: 序列最大长度（用于缓存扩展）
+            cache_dir: 缓存文件存储目录
+        """
         self.mode = mode
+        self.data_path = data_path
         self.max_cand = max_candidates
         self.tokenizer = tokenizer
-        self.device = device
         self.max_len = max_len
         self.cache_dir = cache_dir
-
-        # 初始化缓存目录
         os.makedirs(cache_dir, exist_ok=True)
 
-        # 加载或创建预编码数据
-        if not self._cache_loaded:
-            self._load_or_create_encodings(data_path)
-
-        # 加载样本数据
-        self.samples = self._load_samples(data_path, mode)
-
-    def _load_or_create_encodings(self, data_path):
-        """处理预编码的核心逻辑"""
-        # 缓存文件路径
-        q_cache = os.path.join(self.cache_dir, f"questions_{self.max_len}.pt")
-        a_cache = os.path.join(self.cache_dir, f"answers_{self.max_len}.pt")
-        map_cache = os.path.join(self.cache_dir, "id_maps.pkl")
-
-        # 尝试加载缓存
-        if all(os.path.exists(f) for f in [q_cache, a_cache, map_cache]):
-            print("Loading precomputed encodings from cache...")
-            CMEDQADataset._q_encodings = torch.load(q_cache)
-            CMEDQADataset._a_encodings = torch.load(a_cache)
-            with open(map_cache, 'rb') as f:
-                maps = pickle.load(f)
-                CMEDQADataset._qid_map = maps['qid_map']
-                CMEDQADataset._aid_map = maps['aid_map']
-            return
-
-        print("Precomputing encodings...")
-        # 加载原始数据
-        q_df = pd.read_csv(os.path.join(data_path, "question.csv"),
-                           names=['id', 'text'], dtype=str,
-                           on_bad_lines='skip').dropna()
-        a_df = pd.read_csv(os.path.join(data_path, "answer.csv"),
-                           names=['id', 'question_id', 'text'], dtype=str,
-                           on_bad_lines='skip').dropna()
-
-        # 构建ID映射
-        CMEDQADataset._qid_map = {qid: idx for idx, qid in enumerate(q_df['id'])}
-        CMEDQADataset._aid_map = {aid: idx for idx, aid in enumerate(a_df['id'])}
-
-        # 并行编码函数
-
-        def _parallel_encode(texts):
-            return self.tokenizer.batch_encode_plus(
-                texts,
-                max_length=self.max_len,
-                truncation=True,
-                padding='max_length',
-                return_tensors='pt'
+        # === 第一层缓存：加载全局文本映射 ===#
+        if CMEDQADataset._qid_to_text is None:
+            # 加载问题文本映射
+            q_path = os.path.join(data_path, "question.csv")
+            questions = pd.read_csv(
+                q_path,
+                names=['id', 'text'],
+                dtype={'id': str, 'text': str},
+                on_bad_lines='skip'
             )
+            CMEDQADataset._qid_to_text = dict(zip(questions['id'], questions['text']))
 
-        # 使用多进程加速
-        with ProcessPoolExecutor() as executor:
-            q_future = executor.submit(_parallel_encode, q_df['text'].tolist())
-            a_future = executor.submit(_parallel_encode, a_df['text'].tolist())
+            # 加载答案文本映射
+            a_path = os.path.join(data_path, "answer.csv")
+            answers = pd.read_csv(
+                a_path,
+                names=['id', 'question_id', 'text'],
+                dtype={'id': str, 'question_id': str, 'text': str},
+                on_bad_lines='skip'
+            )
+            CMEDQADataset._aid_to_text = dict(zip(answers['id'], answers['text']))
 
-            q_enc = q_future.result()
-            a_enc = a_future.result()
+        self.qid_to_text = CMEDQADataset._qid_to_text
+        self.aid_to_text = CMEDQADataset._aid_to_text
 
-        # 转换为优化格式
-        CMEDQADataset._q_encodings = {
-            'input_ids': q_enc['input_ids'].to(torch.int32),
-            'attention_mask': q_enc['attention_mask'].to(torch.uint8)
-        }
-        CMEDQADataset._a_encodings = {
-            'input_ids': a_enc['input_ids'].to(torch.int32),
-            'attention_mask': a_enc['attention_mask'].to(torch.uint8)
-        }
+        # === 第二层缓存：处理后的样本数据 ===#
+        # 生成唯一缓存文件名（包含分词器哈希和关键参数）
+        tokenizer_hash = md5(pickle.dumps(tokenizer)).hexdigest()[:8]
+        cache_name = f"{mode}_mc{max_candidates}_ml{max_len}_tok.pkl"
+        cache_path = os.path.join(cache_dir, cache_name)
 
-        # 保存缓存
-        torch.save(CMEDQADataset._q_encodings, q_cache)
-        torch.save(CMEDQADataset._a_encodings, a_cache)
-        with open(map_cache, 'wb') as f:
-            pickle.dump({
-                'qid_map': CMEDQADataset._qid_map,
-                'aid_map': CMEDQADataset._aid_map
-            }, f)
-
-        self._cache_loaded = True
-
-    def _load_samples(self, data_path, mode):
-        """加载样本关系的优化实现"""
-        cache_file = os.path.join(self.cache_dir, f"{mode}_samples.pkl")
-
-        if os.path.exists(cache_file):
-            with open(cache_file, 'rb') as f:
-                return pickle.load(f)
-
-        # 原始数据加载逻辑
-        if mode == 'train':
-            df = pd.read_csv(
-                os.path.join(data_path, "train.txt"),
-                sep=',',
-                dtype={'question_id': str, 'pos_ans_id': str, 'neg_ans_id': str},
-                header=0
-            ).dropna()
-            samples = [{
-                'qid': row['question_id'].strip(),
-                'candidates': [row['pos_ans_id'].strip(), row['neg_ans_id'].strip()],
-                'labels': [1, 0]
-            } for _, row in df.iterrows()]
+        if os.path.exists(cache_path):
+            # 从缓存加载预处理后的 Tensor 数据
+            with open(cache_path, "rb") as f:
+                self.tokenized_samples = pickle.load(f)  # 直接加载分词结果
         else:
-            df = pd.read_csv(
-                os.path.join(data_path, f"{mode}.txt"),
-                sep=',',
-                dtype={'question_id': str, 'ans_id': str, 'label': int},
-                header=0
-            ).dropna()
-            samples = []
-            for qid, group in df.groupby('question_id'):
-                samples.append({
-                    'qid': qid.strip(),
-                    'candidates': group['ans_id'].str.strip().tolist()[:self.max_cand],
-                    'labels': group['label'].tolist()[:self.max_cand]
+            # 无缓存时处理原始数据并分词
+            if mode == 'train':
+                self._process_train()
+            else:
+                self._process_eval()
+            # self._validate_data_consistency()
+
+            self.tokenized_samples = []
+            for sample in tqdm(self.samples, desc="Tokenizing Data"):
+                # 获取问题和候选答案文本
+                query_text = self.qid_to_text[sample['question_id']]
+
+                # 根据模式获取候选答案ID列表
+                if self.mode == 'train':
+                    # 训练模式：candidates 是 [pos_ans_id, neg_ans_id]
+                    candidate_ids = sample['candidates']
+                else:
+                    # 评估模式：candidates 是多个答案ID
+                    candidate_ids = sample['candidates']
+
+                # 转换为文本
+                candidate_texts = [
+                    self.aid_to_text.get(ans_id, "[UNK]")
+                    for ans_id in candidate_ids
+                ]
+
+                # Tokenize 查询和候选
+                query_enc = tokenizer(
+                    query_text,
+                    max_length=max_len,
+                    truncation=True,
+                    padding='max_length',
+                    return_tensors='pt'
+                )
+                cand_enc = tokenizer(
+                    candidate_texts,
+                    max_length=max_len,
+                    truncation=True,
+                    padding='max_length',
+                    return_tensors='pt',
+                    return_attention_mask=True
+                )
+
+                # 存储为字典（避免重复分词）
+                self.tokenized_samples.append({
+                    'query_input_ids': query_enc['input_ids'].squeeze(0),  # [seq_len]
+                    'query_attention_mask': query_enc['attention_mask'].squeeze(0),
+                    'cand_input_ids': cand_enc['input_ids'],  # [num_cand, seq_len]
+                    'cand_attention_mask': cand_enc['attention_mask'],
+                    'labels': torch.FloatTensor(sample['labels'])
                 })
 
-        # 缓存样本数据
-        with open(cache_file, 'wb') as f:
-            pickle.dump(samples, f)
+            # 保存预处理结果
+            with open(cache_path, "wb") as f:
+                pickle.dump(self.tokenized_samples, f)
 
-        return samples
+
+    def _process_train(self):
+        """训练数据处理：每行直接作为一个样本（1正1负）"""
+        self.samples = []
+
+        # 显式指定列数据类型为字符串（避免自动推断）
+        self.data = pd.read_csv(
+            f"{self.data_path}/train.txt",
+            # f"{self.data_path}/train.txt",
+            names=['question_id', 'pos_ans_id', 'neg_ans_id'],
+            dtype={'question_id': str, 'pos_ans_id': str, 'neg_ans_id': str},  # ✅ 强制转换为字符串
+            sep=',',  # 明确分隔符
+            header=0,  # ✅ 跳过首行（标题行）
+            engine='python',  # 避免C引擎解析问题
+            on_bad_lines='warn'  # 跳过错误行
+        )
+        print(self.data.columns)  # 查看实际列名
+
+        # 过滤包含非数字ID的行
+        self.data = self.data[
+            self.data['question_id'].str.isdigit() &
+            self.data['pos_ans_id'].str.isdigit() &
+            self.data['neg_ans_id'].str.isdigit()
+            ]
+
+        # 过滤无效行（可选）
+        self.data = self.data.dropna()  # 删除包含空值的行
+
+        # 构建统一格式的 samples
+        for _, row in self.data.iterrows():
+            self.samples.append({
+                'question_id': row['question_id'].strip(),
+                'candidates': [  # ✅ 关键修改：构造 candidates 列表
+                    row['pos_ans_id'].strip(),
+                    row['neg_ans_id'].strip()
+                ],
+                'labels': [1, 0]  # ✅ 标签直接存储
+            })
+
+    def _process_eval(self):
+        """评估数据处理：聚合每个问题的所有候选答案"""
+        self.query_dict = defaultdict(lambda: {'candidates': [], 'labels': []})
+        self.samples = []  # ✅ 新增：初始化 samples 列表
+
+        # 显式指定列数据类型
+        self.data = pd.read_csv(
+            f"{self.data_path}/{self.mode}.txt",
+            names=['question_id', 'ans_id', 'cnt', 'label'],
+            dtype={'question_id': str, 'ans_id': str, 'cnt': int, 'label': int},
+            sep=',',
+            header=0,
+            engine='python',
+            on_bad_lines='warn'
+        )
+
+        # 过滤包含非数字ID的行
+        self.data = self.data[
+            self.data['question_id'].str.isdigit() &
+            self.data['ans_id'].str.isdigit()
+            ]
+
+        # 删除空值和无效标签
+        self.data = self.data.dropna()
+        self.data = self.data[self.data['label'].isin([0, 1])]
+
+        # 构建 samples 列表
+        for question_id, group in self.data.groupby('question_id'):
+            candidates = group['ans_id'].tolist()
+            labels = group['label'].tolist()
+            # 截取前max_candidates个候选
+            candidates = candidates[:self.max_cand]
+            labels = labels[:self.max_cand]
+            # 填充到max_candidates，如果不足的话
+            pad_length = self.max_cand - len(candidates)
+            if pad_length > 0:
+                candidates += ['0'] * pad_length  # 使用无效ans_id填充
+                labels += [0] * pad_length  # 标签填充0
+            self.samples.append({
+                'question_id': question_id,
+                'candidates': candidates,
+                'labels': labels
+            })
+
+        self.question_ids = [sample['question_id'] for sample in self.samples]
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.tokenized_samples)  # 直接返回分词后样本数
 
     def __getitem__(self, idx):
-        sample = self.samples[idx]
+        # 直接返回预处理的 Tensor 数据
+        return self.tokenized_samples[idx]
 
-        # 获取问题编码
-        q_idx = self._qid_map[sample['qid']]
-        q_input_ids = self._q_encodings['input_ids'][q_idx].long()
-        q_attention_mask = self._q_encodings['attention_mask'][q_idx].long()
+    def _validate_data_consistency(self):
+        def is_valid_question_id(s):
+            # 检查是否为数字且在映射字典中存在
+            if not s.isdigit():
+                return False
+            return s in self.qid_to_text
+        def is_valid_ans_id(s):
+            # 检查是否为数字且在映射字典中存在
+            if not s.isdigit():
+                return False
+            return s in self.aid_to_text
 
-        # 获取候选答案编码
-        cand_indices = [self._aid_map[aid] for aid in sample['candidates']]
-        a_input_ids = self._a_encodings['input_ids'][cand_indices].long()
-        a_attention_mask = self._a_encodings['attention_mask'][cand_indices].long()
+        # 训练数据验证
+        if self.mode == 'train':
+            for idx, sample in enumerate(self.samples[:100]):
+                question_id = sample['question_id']
+                pos_ans_id = sample['pos_ans_id']
+                neg_ans_id = sample['neg_ans_id']
+                assert is_valid_question_id(question_id), f"训练数据第 {idx} 行: question_id={question_id} 无效"
+                assert is_valid_ans_id(pos_ans_id), f"训练数据第 {idx} 行: pos_ans_id={pos_ans_id} 无效"
+                assert is_valid_ans_id(neg_ans_id), f"训练数据第 {idx} 行: neg_ans_id={neg_ans_id} 无效"
 
-        return {
-            'query_input_ids': q_input_ids,
-            'query_attention_mask': q_attention_mask,
-            'cand_input_ids': a_input_ids,
-            'cand_attention_mask': a_attention_mask,
-            'labels': torch.FloatTensor(sample['labels'])
-        }
-
-
-def optimized_collate_fn(batch):
-    """优化后的批次处理函数"""
+    @classmethod
+    def clear_cache(cls, cache_dir=".cache"):
+        """清空所有缓存文件（用于数据更新后）"""
+        if os.path.exists(cache_dir):
+            for f in os.listdir(cache_dir):
+                os.remove(os.path.join(cache_dir, f))
+def cmedqa_collate_fn(batch):
+    """合并预处理的 Tensor 数据"""
     return {
         'query': {
-            'input_ids': torch.stack([item['query_input_ids'] for item in batch]),
+            'input_ids': torch.stack([item['query_input_ids'] for item in batch]),  # [batch, seq_len]
             'attention_mask': torch.stack([item['query_attention_mask'] for item in batch])
         },
         'candidates': {
-            'input_ids': torch.stack([item['cand_input_ids'] for item in batch]),
+            'input_ids': torch.stack([item['cand_input_ids'] for item in batch]),  # [batch, num_cand, seq_len]
             'attention_mask': torch.stack([item['cand_attention_mask'] for item in batch])
         },
-        'labels': torch.stack([item['labels'] for item in batch])
+        'labels': torch.stack([item['labels'] for item in batch])  # [batch, num_cand]
     }
+
+
+# 示例用法
+if __name__ == "__main__":
+    # 首次加载会生成缓存
+    train_set = CMEDQADataset(
+        data_path="data/wjh/graduate/AugData/cMedQA2",
+        mode='train',
+        cache_dir=".cache"
+    )
+
+    # 后续加载直接读取缓存
+    dev_set = CMEDQADataset(
+        data_path="data/wjh/graduate/AugData/cMedQA2",
+        mode='dev',
+        cache_dir=".cache"
+    )
+
+    # 清空缓存（当原始数据更新时调用）
+    CMEDQADataset.clear_cache()
