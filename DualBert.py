@@ -9,24 +9,37 @@ from block.KeywordAttentionLayer import KeywordAttentionLayer  # 假设已实现
 class Adapter(nn.Module):
     def __init__(self, hidden_size, adapter_size=64):
         super().__init__()
-        self.down_proj = nn.Linear(hidden_size, adapter_size)
-        self.up_proj = nn.Linear(adapter_size, hidden_size)
-        self.activation = nn.GELU()
+        self.down = nn.Linear(hidden_size, adapter_size)
+        self.up = nn.Linear(adapter_size, hidden_size)
+        self.norm = nn.LayerNorm(hidden_size)
 
     def forward(self, x):
-        return x + self.up_proj(self.activation(self.down_proj(x)))  # ✅ 确保 residual 连接
+        residual = x
+        x = self.norm(x)
+        x = self.up(F.gelu(self.down(x)))
+        return residual + x  # 更稳定的残差连接
 
 # 添加交叉注意力层
 class CrossAttention(nn.Module):
-    def __init__(self, embed_dim):
+    def __init__(self, bert_hidden_size, embed_dim):  # 同时接收 BERT 原始维度和投影维度
         super().__init__()
-        self.attn = MultiheadAttention(embed_dim, num_heads=4)  # ✅ 这里也用 embed_dim
+        # 将投影后的维度（embed_dim）映射回 BERT 原始维度（bert_hidden_size）
+        self.query_proj = nn.Linear(embed_dim, bert_hidden_size)
+        self.key_proj = nn.Linear(embed_dim, bert_hidden_size)
+        self.attn = MultiheadAttention(bert_hidden_size, num_heads=4)
 
     def forward(self, query, key_value):
-        query = query.permute(1, 0, 2)  # [seq_len, batch, hidden]
-        key_value = key_value.permute(1, 0, 2)
-        attn_output, _ = self.attn(query, key_value, key_value)
-        return attn_output.permute(1, 0, 2)
+        # 维度变换
+        query = self.query_proj(query)
+        key = self.key_proj(key_value)
+        # 调整维度顺序 [seq_len, batch, features]
+        query = query.permute(1, 0, 2)
+        key = key.permute(1, 0, 2)
+        value = key  # 使用与 key 相同的值
+
+        # 计算注意力
+        attn_output, _ = self.attn(query, key, value)
+        return attn_output.permute(1, 0, 2)  # 恢复 [batch, seq_len, features]
 
 class EnhancedDualBERT(BertPreTrainedModel):
     """
@@ -80,9 +93,17 @@ class EnhancedDualBERT(BertPreTrainedModel):
         # --------------------------
         # 投影与正则化
         # --------------------------
-        # 降维投影
-        self.query_proj = nn.Linear(config.hidden_size, args.embed_dim)
-        self.doc_proj = nn.Linear(config.hidden_size, args.embed_dim)
+        # 修改投影层
+        self.query_proj = nn.Sequential(
+            nn.Linear(config.hidden_size, args.embed_dim),
+            nn.LayerNorm(args.embed_dim)
+        )
+        self.doc_proj = nn.Sequential(
+            nn.Linear(config.hidden_size, args.embed_dim),
+            nn.LayerNorm(args.embed_dim)
+        )
+        # 温度参数
+        self.temperature = nn.Parameter(torch.ones([]) * 0.05)
 
         # 初始化参数
         self.init_weights()
@@ -92,7 +113,20 @@ class EnhancedDualBERT(BertPreTrainedModel):
             num_heads=4,  # 可调整头数
             dropout=0.1
         ) if args.use_gate else None
-        self.cross_attn = CrossAttention(args.embed_dim)  # ✅ 让 CrossAttention 适应降维后的维度
+        # 获取 BERT 的原始隐藏层维度（通常为768）
+        bert_hidden_size = config.hidden_size
+        # 传递两个参数：bert_hidden_size 和 embed_dim
+        self.cross_attn = CrossAttention(bert_hidden_size, args.embed_dim)
+        # 在初始化时注册 Adapter 到每一层
+        for layer in self.query_bert.encoder.layer:
+            layer.register_forward_hook(self._add_adapter_hook)
+
+    @staticmethod
+    def _add_adapter_hook(module, input, output):
+        """在每层 BERT 的输出后自动添加 Adapter"""
+        hidden_states = output[0]
+        adapted = module.adapter(hidden_states)
+        return (adapted,) + output[1:]  # 保持其他输出不变
 
     def _add_adapters(self, bert_model, adapter_size):
         """为BERT模型的每一层添加Adapter模块"""
@@ -148,22 +182,18 @@ class EnhancedDualBERT(BertPreTrainedModel):
         return hiddens + noise, mu, logvar
 
     def encode_query(self, input_ids, attention_mask):
-        # 基础编码
-        outputs = self.query_bert(input_ids=input_ids, attention_mask=attention_mask)
-        hiddens = outputs.last_hidden_state
-        attention_mask = attention_mask.to(dtype=torch.float)  # ✅ 解决错误
-        # print("Query BERT hidden size:", self.query_bert.config.hidden_size)
-        # print("Doc BERT hidden size:", self.doc_bert.config.hidden_size)
-        # 遍历每一层并应用Adapter
-        for layer in self.query_bert.encoder.layer:
-            # 原始BERT层的前向传播
-            hiddens = layer.adapter(hiddens)  # ✅ 确保 Adapter 不改变 hidden_size
+        outputs = self.query_bert(
+            input_ids=input_ids,
+            attention_mask=attention_mask,  # ✅ 使用四维掩码
+            output_hidden_states=True
+        )
 
-            # 应用Adapter并残差连接
-            hiddens = layer.adapter(hiddens)
+        # 直接获取最后一层输出
+        hiddens = outputs.last_hidden_state
         # 其他处理（如噪声注入、关键词注意力等）
         hiddens = self._apply_keyword_attention(hiddens, attention_mask)
         hiddens, mu, logvar = self._apply_noise(hiddens)
+        # 在 encode_query 中添加调试信息
         return self.query_proj(hiddens[:, 0]), mu, logvar
 
     def encode_doc(self, input_ids, attention_mask):
@@ -196,22 +226,39 @@ class EnhancedDualBERT(BertPreTrainedModel):
 
         q_embeds, mu, logvar = self.encode_query(**query_inputs)  # [batch, embed_dim]
         d_embeds = self.encode_doc(**doc_inputs)  # [batch, num_cand, embed_dim]
-
-        # 扩展查询嵌入以匹配文档候选数量
-        q_expanded = q_embeds.unsqueeze(1).expand(-1, d_embeds.size(1), -1)  # [batch, num_cand, embed_dim]
-
-        # 应用交叉注意力
-        cross_embeds = self.cross_attn(q_expanded, d_embeds)  # [batch, num_cand, embed_dim]
-
         # 计算相似度得分
-        scores = torch.matmul(q_embeds.unsqueeze(1),  # [batch, 1, embed_dim]
-                              cross_embeds.transpose(1, 2)  # [batch, embed_dim, num_cand]
-                              ).squeeze(1)  # [batch, num_cand]
+        scores = torch.matmul(
+            q_embeds.unsqueeze(1),  # [batch, 1, embed_dim]
+            d_embeds.transpose(1, 2)  # [batch, embed_dim, num_cand]
+        ).squeeze(1)  # [batch, num_cand]
 
-        # print(f"scores shape: {scores.shape}")
+        # 或者方法2：如果您确实需要交叉注意力
+        # cross_embeds = self.cross_attn(
+        #     q_embeds.unsqueeze(1),  # [batch, 1, embed_dim]
+        #     d_embeds  # [batch, num_cand, embed_dim]
+        # )  # [batch, 1, embed_dim]
+        # scores = torch.matmul(
+        #     cross_embeds,
+        #     d_embeds.transpose(1, 2)
+        # ).squeeze(1)  # [batch, num_cand]
+
+        # 应用温度系数
+        scores = scores / self.temperature
+
         return scores, mu, logvar
 
     def compute_loss(self, scores, labels, mu, logvar):
-        contrast_loss = F.cross_entropy(scores, labels)
+        """计算损失函数，输入:
+        - scores: [batch_size, num_candidates]
+        - labels: [batch_size, num_candidates]
+        """
+        # 多标签二元交叉熵损失
+        contrast_loss = F.binary_cross_entropy_with_logits(
+            scores,  # 直接使用2D scores
+            labels.float(),
+            pos_weight=torch.tensor([5.0], device=scores.device))  # 正样本加权
+
+        # KL散度正则项
         kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
         return contrast_loss + self.args.kl_weight * kl_loss

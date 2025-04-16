@@ -89,6 +89,7 @@ def train(model, train_loader, val_loader, args):
 
             # 每隔 accumulation_steps 步更新一次参数
             if (step + 1) % accumulation_steps == 0:
+                print("Projection layer grad norm:",torch.norm(model.query_proj[0].weight.grad).item())
                 # 梯度裁剪（必须在反缩放后执行）
                 scaler.unscale_(optimizer)  # ✅ 解除缩放以正确裁剪
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -137,6 +138,7 @@ def evaluate(model, data_loader, args, top_k=(1, 3, 5, 10)):
             # 修正点：缩进 autocast 作用域内的代码
             with autocast():  # ✅ 混合精度前向
                 scores, _, _ = model(query_inputs, doc_inputs)  # 必须缩进到 with 块内
+                # print("Model output scores shape:", scores.shape)  # 应为 [batch_size, num_candidates]
 
             scores = scores.cpu().numpy()  # ✅ 仅处理 scores
             labels = batch['labels'].cpu().numpy()
@@ -147,6 +149,17 @@ def evaluate(model, data_loader, args, top_k=(1, 3, 5, 10)):
     # 合并结果（以下代码不变）
     scores = np.concatenate(all_scores, axis=0)
     labels = np.concatenate(all_labels, axis=0)
+    # 在 evaluate() 中添加检查
+    # print("Sample Labels:", labels[0])  # 查看第一个query的标签分布
+    # print("Sample Labels:", labels[1])  # 查看第一个query的标签分布
+    # print("Sample Labels:", labels[2])  # 查看第一个query的标签分布
+    # print("Sample Labels:", labels[3])  # 查看第一个query的标签分布
+    # print("Sample Labels:", labels[4])  # 查看第一个query的标签分布
+    # print("Sample Labels:", labels[5])  # 查看第一个query的标签分布
+    # print("Sample Labels:", labels[6])  # 查看第一个query的标签分布
+    # print("Sample Labels:", labels[7])  # 查看第一个query的标签分布
+    # print("Sample Labels:", labels[8])  # 查看第一个query的标签分布
+    # print("Sample Labels:", labels[9])  # 查看第一个query的标签分布
 
     # 计算指标
     metrics = {}
@@ -160,24 +173,29 @@ def evaluate(model, data_loader, args, top_k=(1, 3, 5, 10)):
     return metrics
 
 
-def calculate_metrics(scores, labels, top_k):
+def calculate_metrics(scores, labels, top_k,debug = True):
     """计算Recall@K和MRR@K"""
     recall = 0
     mrr = 0
+    print("Input shapes - scores:", scores.shape, "labels:", labels.shape)  # 调试
+    assert scores.shape == labels.shape, "Scores and labels must have the same shape!"
     for i in range(scores.shape[0]):
         # 获取每个query的排序结果
-        sorted_indices = np.argsort(-scores[i])
-        print("sorted_indices",sorted_indices)
-        relevant = np.where(labels[i][sorted_indices] == 1)[0]
+        sorted_indices = np.argsort(-scores[i])  # 降序排序
+        sorted_labels = labels[i][sorted_indices]
+        positive_positions = np.where(sorted_labels == 1)[0]  # 所有正样本的位置
 
-        # Recall@K
-        if len(relevant) > 0 and relevant[0] < top_k:
-            recall += 1
-            print(recall)
+        if debug and i < 10:  # 只打印前3个query的调试信息
+            print(f"\nQuery {i} Top-{top_k} Candidates:")
+            print("Sorted Scores:", scores[i][sorted_indices[:top_k]])
+            print("Sorted Labels:", sorted_labels[:top_k])
+            print("True Positive Positions:", positive_positions)
+        # 计算Recall@K：是否有正样本出现在前top_k个位置
+        recall += int(any(pos < top_k for pos in positive_positions))
 
         # MRR@K
-        if len(relevant) > 0:
-            first_relevant = relevant[0] + 1  # 位置从1开始计数
+        if len(positive_positions) > 0:
+            first_relevant = positive_positions[0] + 1  # 位置从1开始计数
             mrr += 1 / first_relevant if first_relevant <= top_k else 0
 
     recall = recall / scores.shape[0]
@@ -251,7 +269,7 @@ if __name__ == "__main__":
         mode='dev',
         tokenizer=tokenizer,
         max_len=args.max_len,
-        max_candidates=200,
+        max_candidates=100,
         cache_dir=".cache"
     )
 
@@ -268,7 +286,7 @@ if __name__ == "__main__":
     # 验证集关闭shuffle
     val_loader = DataLoader(
         val_dataset,
-        batch_size=64,
+        batch_size=32,
         shuffle=False,
         collate_fn= cmedqa_collate_fn,
         num_workers=12,

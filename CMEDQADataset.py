@@ -69,7 +69,7 @@ class CMEDQADataset(Dataset):
         # === 第二层缓存：处理后的样本数据 ===#
         # 生成唯一缓存文件名（包含分词器哈希和关键参数）
         tokenizer_hash = md5(pickle.dumps(tokenizer)).hexdigest()[:8]
-        cache_name = f"{mode}_mc{max_candidates}_ml{max_len}_tok.pkl"
+        cache_name = f"{mode}_mc{max_candidates}_ml{max_len}_tok100000.pkl"
         cache_path = os.path.join(cache_dir, cache_name)
 
         if os.path.exists(cache_path):
@@ -140,8 +140,7 @@ class CMEDQADataset(Dataset):
 
         # 显式指定列数据类型为字符串（避免自动推断）
         self.data = pd.read_csv(
-            f"{self.data_path}/train.txt",
-            # f"{self.data_path}/train.txt",
+            f"{self.data_path}/train_candidates.txt",
             names=['question_id', 'pos_ans_id', 'neg_ans_id'],
             dtype={'question_id': str, 'pos_ans_id': str, 'neg_ans_id': str},  # ✅ 强制转换为字符串
             sep=',',  # 明确分隔符
@@ -179,7 +178,7 @@ class CMEDQADataset(Dataset):
 
         # 显式指定列数据类型
         self.data = pd.read_csv(
-            f"{self.data_path}/{self.mode}.txt",
+            f"{self.data_path}/{self.mode}_candidates.txt",
             names=['question_id', 'ans_id', 'cnt', 'label'],
             dtype={'question_id': str, 'ans_id': str, 'cnt': int, 'label': int},
             sep=',',
@@ -271,18 +270,40 @@ def cmedqa_collate_fn(batch):
 # 示例用法
 if __name__ == "__main__":
     # 首次加载会生成缓存
-    train_set = CMEDQADataset(
-        data_path="data/wjh/graduate/AugData/cMedQA2",
-        mode='train',
-        cache_dir=".cache"
+    import pandas as pd
+
+    # 处理训练集
+    train_path = "data/wjh/graduate/AugData/cMedQA2/train_candidates.txt"
+    q_df = pd.read_csv(
+        train_path,
+        sep=',',
+        names=['question_id', 'pos_ans_id', 'neg_ans_id'],  # 显式指定列名
+        dtype=str,
+        header=None,  # 确保不将第一行作为标题
+        on_bad_lines='skip',
+        nrows=10000
+    ).dropna()
+
+    q_df.to_csv(
+        "data/wjh/graduate/AugData/cMedQA2/q.csv",
+        index=False,  # 不保存索引列
+        header=False  # 不生成标题行（保持与原文件一致）
     )
 
-    # 后续加载直接读取缓存
-    dev_set = CMEDQADataset(
-        data_path="data/wjh/graduate/AugData/cMedQA2",
-        mode='dev',
-        cache_dir=".cache"
-    )
+    # 处理验证集
+    dev_path = "data/wjh/graduate/AugData/cMedQA2/dev_candidates.txt"
+    v_df = pd.read_csv(
+        dev_path,
+        sep=',',
+        names=['question_id', 'ans_id', 'cnt', 'label'],  # 假设开发集有4列
+        dtype=str,
+        header=None,
+        on_bad_lines='skip',
+        nrows=10000
+    ).dropna()
 
-    # 清空缓存（当原始数据更新时调用）
-    CMEDQADataset.clear_cache()
+    v_df.to_csv(
+        "data/wjh/graduate/AugData/cMedQA2/v.csv",
+        index=False,
+        header=False
+    )
