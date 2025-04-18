@@ -23,7 +23,7 @@ class CMEDQADataset(Dataset):
             tokenizer=None,
             max_len=128,
             cache_dir=".cache",
-            chunk_size=100000  # 新增批次大小参数
+            chunk_size=1000000  # 新增批次大小参数
     ):
         self.mode = mode
         self.data_path = data_path
@@ -142,8 +142,8 @@ class CMEDQADataset(Dataset):
         chunk_size = 10000  # 分块读取
 
         reader = pd.read_csv(
-            # f"{self.data_path}/train_candidates.txt",
-            f"{self.data_path}/train.txt",
+            f"{self.data_path}/train_candidates.txt",
+            # f"{self.data_path}/train.txt",
             names=['question_id', 'pos_ans_id', 'neg_ans_id'],
             dtype={'question_id': str, 'pos_ans_id': str, 'neg_ans_id': str},
             sep=',',
@@ -176,8 +176,8 @@ class CMEDQADataset(Dataset):
         chunk_size = 10000
         #
         reader = pd.read_csv(
-            # f"{self.data_path}/{self.mode}_candidates.txt",
-            f"{self.data_path}/{self.mode}.txt",
+            f"{self.data_path}/{self.mode}_candidates.txt",
+            # f"{self.data_path}/{self.mode}.txt",
             names=['question_id', 'ans_id', 'cnt', 'label'],
             dtype={'question_id': str, 'ans_id': str, 'cnt': int, 'label': int},
             sep=',',

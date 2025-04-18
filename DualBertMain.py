@@ -257,7 +257,7 @@ if __name__ == "__main__":
         batch_size=64,  # 可大幅增加 batch_size
         shuffle=True,
         collate_fn=cmedqa_collate_fn,  # 直接使用简化后的函数
-        num_workers=8,
+        num_workers=10,
         pin_memory=True,
         persistent_workers=True
     )
