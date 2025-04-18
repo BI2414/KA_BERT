@@ -89,7 +89,7 @@ def train(model, train_loader, val_loader, args):
 
             # 每隔 accumulation_steps 步更新一次参数
             if (step + 1) % accumulation_steps == 0:
-                print("Projection layer grad norm:",torch.norm(model.query_proj[0].weight.grad).item())
+                # print("Projection layer grad norm:",torch.norm(model.query_proj[0].weight.grad).item())
                 # 梯度裁剪（必须在反缩放后执行）
                 scaler.unscale_(optimizer)  # ✅ 解除缩放以正确裁剪
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -149,26 +149,14 @@ def evaluate(model, data_loader, args, top_k=(1, 3, 5, 10)):
     # 合并结果（以下代码不变）
     scores = np.concatenate(all_scores, axis=0)
     labels = np.concatenate(all_labels, axis=0)
-    # 在 evaluate() 中添加检查
-    # print("Sample Labels:", labels[0])  # 查看第一个query的标签分布
-    # print("Sample Labels:", labels[1])  # 查看第一个query的标签分布
-    # print("Sample Labels:", labels[2])  # 查看第一个query的标签分布
-    # print("Sample Labels:", labels[3])  # 查看第一个query的标签分布
-    # print("Sample Labels:", labels[4])  # 查看第一个query的标签分布
-    # print("Sample Labels:", labels[5])  # 查看第一个query的标签分布
-    # print("Sample Labels:", labels[6])  # 查看第一个query的标签分布
-    # print("Sample Labels:", labels[7])  # 查看第一个query的标签分布
-    # print("Sample Labels:", labels[8])  # 查看第一个query的标签分布
-    # print("Sample Labels:", labels[9])  # 查看第一个query的标签分布
-
     # 计算指标
     metrics = {}
     for k in top_k:
         recall, mrr = calculate_metrics(scores, labels, k)
         metrics[f'recall@{k}'] = recall
         metrics[f'mrr@{k}'] = mrr
-        print(f'recall@{k}:' , recall)
-        print(f'mrr@{k}:' , mrr)
+        # print(f'recall@{k}:' , recall)
+        # print(f'mrr@{k}:' , mrr)
 
     return metrics
 
@@ -177,7 +165,7 @@ def calculate_metrics(scores, labels, top_k,debug = True):
     """计算Recall@K和MRR@K"""
     recall = 0
     mrr = 0
-    print("Input shapes - scores:", scores.shape, "labels:", labels.shape)  # 调试
+    # print("Input shapes - scores:", scores.shape, "labels:", labels.shape)  # 调试
     assert scores.shape == labels.shape, "Scores and labels must have the same shape!"
     for i in range(scores.shape[0]):
         # 获取每个query的排序结果
@@ -185,11 +173,11 @@ def calculate_metrics(scores, labels, top_k,debug = True):
         sorted_labels = labels[i][sorted_indices]
         positive_positions = np.where(sorted_labels == 1)[0]  # 所有正样本的位置
 
-        if debug and i < 10:  # 只打印前3个query的调试信息
-            print(f"\nQuery {i} Top-{top_k} Candidates:")
-            print("Sorted Scores:", scores[i][sorted_indices[:top_k]])
-            print("Sorted Labels:", sorted_labels[:top_k])
-            print("True Positive Positions:", positive_positions)
+        # if debug and i < 10:  # 只打印前3个query的调试信息
+        #     print(f"\nQuery {i} Top-{top_k} Candidates:")
+        #     print("Sorted Scores:", scores[i][sorted_indices[:top_k]])
+        #     print("Sorted Labels:", sorted_labels[:top_k])
+        #     print("True Positive Positions:", positive_positions)
         # 计算Recall@K：是否有正样本出现在前top_k个位置
         recall += int(any(pos < top_k for pos in positive_positions))
 
@@ -255,32 +243,23 @@ if __name__ == "__main__":
 
     # 初始化数据集（训练模式无需任何采样参数）
     # DualBertMain.py中修改数据集初始化代码
-    train_dataset = CMEDQADataset(
-        data_path=args.data_path,
-        mode='train',
-        tokenizer=tokenizer,  # 必须传递
-        max_len=args.max_len,
-        max_candidates=2,  # 训练时1正1负
-        cache_dir=".cache"
-    )
+    train_dataset = CMEDQADataset(data_path=args.data_path, mode='train', max_candidates=2, tokenizer=tokenizer,
+                                  max_len=args.max_len, cache_dir=".cache",chunk_size = 1000000)
 
-    val_dataset = CMEDQADataset(
-        data_path=args.data_path,
-        mode='dev',
-        tokenizer=tokenizer,
-        max_len=args.max_len,
-        max_candidates=100,
-        cache_dir=".cache"
-    )
+    val_dataset = CMEDQADataset(data_path=args.data_path, mode='dev', max_candidates=100, tokenizer=tokenizer,
+                                max_len=args.max_len, cache_dir=".cache",chunk_size = 1000000)
 
+    print(f"训练集样本数: {len(train_dataset)}")  # 应输出正数
+    print(f"验证集样本数: {len(val_dataset)}")  # 应输出正数
     # DataLoader 使用简化后的 collate_fn
     train_loader = DataLoader(
         train_dataset,
         batch_size=64,  # 可大幅增加 batch_size
         shuffle=True,
         collate_fn=cmedqa_collate_fn,  # 直接使用简化后的函数
-        num_workers=12,
-        pin_memory=True
+        num_workers=8,
+        pin_memory=True,
+        persistent_workers=True
     )
 
     # 验证集关闭shuffle
@@ -289,8 +268,9 @@ if __name__ == "__main__":
         batch_size=32,
         shuffle=False,
         collate_fn= cmedqa_collate_fn,
-        num_workers=12,
-        pin_memory=True
+        num_workers=10,
+        pin_memory=True,
+        persistent_workers=True
     )
 
     # 训练流程
