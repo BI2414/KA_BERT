@@ -1,0 +1,1 @@
+python -u DualBertMain.py > train.log 2>&1

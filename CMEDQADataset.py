@@ -58,8 +58,8 @@ class CMEDQADataset(Dataset):
         self.aid_to_text = CMEDQADataset._aid_to_text
 
         # 生成缓存文件名
-        tokenizer_hash = md5(pickle.dumps(tokenizer)).hexdigest()[:8]
-        cache_name = f"{mode}_mc{max_candidates}_ml{max_len}_tok{tokenizer_hash}.pkl"
+        # tokenizer_hash = md5(pickle.dumps(tokenizer)).hexdigest()[:8]
+        cache_name = f"{mode}_mc{max_candidates}_ml{max_len}_tok{1000000}.pkl"
         cache_path = os.path.join(cache_dir, cache_name)
 
         if os.path.exists(cache_path):
@@ -224,3 +224,46 @@ def cmedqa_collate_fn(batch):
         },
         'labels': torch.stack([item['labels'] for item in batch])
     }
+# 示例用法
+if __name__ == "__main__":
+    # 首次加载会生成缓存
+    import pandas as pd
+
+    # 处理训练集
+    train_path = "data/wjh/graduate/AugData/cMedQA2/train_candidates.txt"
+    q_df = pd.read_csv(
+        train_path,
+        sep=',',
+        names=['question_id', 'pos_ans_id', 'neg_ans_id'],  # 显式指定列名
+        dtype=str,
+        header=None,  # 确保不将第一行作为标题
+        on_bad_lines='skip'
+    ).dropna()
+
+    # 获取后200万条记录
+    last_2m_rows = q_df.tail(2000000)
+
+    # 将后200万条记录保存为csv文件
+    last_2m_rows.to_csv(
+        "data/wjh/graduate/AugData/cMedQA2/q.csv",
+        index=False,  # 不保存索引列
+        header=False  # 不生成标题行（保持与原文件一致）
+    )
+
+    # 处理验证集
+    dev_path = "data/wjh/graduate/AugData/cMedQA2/dev_candidates.txt"
+    v_df = pd.read_csv(
+        dev_path,
+        sep=',',
+        names=['question_id', 'ans_id', 'cnt', 'label'],  # 假设开发集有4列
+        dtype=str,
+        header=None,
+        on_bad_lines='skip',
+        nrows=10000
+    ).dropna()
+
+    v_df.to_csv(
+        "data/wjh/graduate/AugData/cMedQA2/v.csv",
+        index=False,
+        header=False
+    )

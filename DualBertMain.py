@@ -1,21 +1,12 @@
 import sys
 sys.dont_write_bytecode = True
-import argparse
 import os
-import nni
-import time
-import pickle
-import random
 import setproctitle
 import transformers
 transformers.logging.set_verbosity_error()
 import numpy as np
-import pandas as pd
 import torch
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-import torch.nn as nn
-from torch.nn import CrossEntropyLoss
-from sklearn import metrics
 from torch.utils.data import DataLoader, TensorDataset, Dataset
 from tqdm import tqdm
 from transformers import (AdamW, AlbertTokenizer, AlbertModel,
@@ -23,13 +14,7 @@ from transformers import (AdamW, AlbertTokenizer, AlbertModel,
 
 from src.config import get_argparse
 import json
-from src.metrics import flat_accuracy, flat_f1
-from model import NewBert
-from logger import logger
-from src.utils import read_examples
-from src.utils import convert_examples_to_features
 import DualBert
-from sklearn.metrics import roc_auc_score
 from CMEDQADataset import CMEDQADataset
 from CMEDQADataset import cmedqa_collate_fn
 from torch.cuda.amp import autocast, GradScaler
