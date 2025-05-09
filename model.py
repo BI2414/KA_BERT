@@ -188,4 +188,30 @@ class NewBert(nn.Module):
             # output_hidden_states = True 输出隐含状态
             outputs = self.bert_model(**inputs, labels=labels)
             return outputs.loss, 0, outputs.logits
-            
+
+    def get_encoded_representation(self, input_ids, attention_mask, token_type_ids):
+        """
+        推理阶段用：直接提取句子表示（[CLS] 向量），包括 keyword attention/aug 部分。
+        """
+        with torch.no_grad():
+            # 获取 BERT 的 attentions 和 hidden_states
+            outputs = self.bert_model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                output_attentions=True,
+                output_hidden_states=True
+            )
+            attention_weights = outputs.attentions[-1]
+            hidden_states = outputs.hidden_states[-1]  # 最后一层隐藏状态
+
+            # 动态生成 keyword_mask
+            keyword_mask = self.generate_keyword_mask(attention_weights, topk=8)
+
+            if self.args["aug"]:
+                # 走 keyword attention 增强
+                hidden_states = self.keyword_attention(hidden_states, keyword_mask)
+
+            # 取 [CLS] 向量
+            cls_output = hidden_states[:, 0, :]  # [batch, hidden_size]
+            return cls_output
